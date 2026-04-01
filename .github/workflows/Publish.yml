@@ -47,6 +47,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # vsce package lit la version dans package.json : sans cette étape, le .vsix contient encore l’ancienne
+      # version alors que vsce publish applique $VERSION au Marketplace → Open VSX rejette « already published ».
+      - name: Sync package.json version
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
       - name: Package VSIX
         run: npx vsce package --out "explorer-enhanced-${VERSION}.vsix"
         env:
@@ -61,11 +68,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Tag is already created by "Tag and release". --no-git-tag-version avoids `npm version` commit/tag (and Git user.* on the runner).
+      # package.json est déjà aligné sur $VERSION ; évite un double bump vs le .vsix.
       - name: Publish to Visual Studio Marketplace
-        run: npx vsce publish -p "$VSCE_PAT" "$VERSION" --no-git-tag-version
+        run: npx vsce publish -p "$VSCE_PAT" --no-git-tag-version
         env:
           VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
 
       # Même VSIX que ci-dessus — Cursor / VSCodium lisent surtout Open VSX.
       # Auth: OVSX_PAT (lu par ovsx). Ne pas utiliser -t ici : c’est --target (architectures), pas le PAT.
