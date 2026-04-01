@@ -1,6 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { mapPool } from "./asyncPool";
+import { isFsDirectory, isFsFile } from "./fileTypeUtils";
 import { getShowFilesInFolderTreeFromWorkspaceState } from "./filePaneSettings";
 
 /** Max parallel directory reads (avoids FS / AV thrashing on huge folders). */
@@ -25,7 +26,7 @@ function directoryNamesKey(entries: [string, vscode.FileType][] | undefined): st
     return "";
   }
   return entries
-    .filter(([, t]) => t === vscode.FileType.Directory)
+    .filter(([, t]) => isFsDirectory(t))
     .map(([n]) => n)
     .sort()
     .join("\0");
@@ -277,28 +278,28 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
     showFilesInFolderTree = this._showFilesInFolderTree()
   ): Promise<boolean> {
     const entries = await this.listDirectory(uri);
-    if (entries.some(([, t]) => t === vscode.FileType.Directory)) {
+    if (entries.some(([, t]) => isFsDirectory(t))) {
       return true;
     }
-    return showFilesInFolderTree && entries.some(([, t]) => t === vscode.FileType.File);
+    return showFilesInFolderTree && entries.some(([, t]) => isFsFile(t));
   }
 
   private _rootHasVisibleChildren(
     entries: [string, vscode.FileType][],
     showFilesInFolderTree = this._showFilesInFolderTree()
   ): boolean {
-    const hasDir = entries.some(([, t]) => t === vscode.FileType.Directory);
+    const hasDir = entries.some(([, t]) => isFsDirectory(t));
     if (hasDir) {
       return true;
     }
-    return showFilesInFolderTree && entries.some(([, t]) => t === vscode.FileType.File);
+    return showFilesInFolderTree && entries.some(([, t]) => isFsFile(t));
   }
 
   /** Build sorted child rows: folders first, then files (when enabled). */
   private async _buildChildItems(parentUri: vscode.Uri): Promise<FolderTreeItem[]> {
     const entries = await this.listDirectory(parentUri);
     const showFiles = this._showFilesInFolderTree();
-    const dirEntries = entries.filter(([, t]) => t === vscode.FileType.Directory);
+    const dirEntries = entries.filter(([, t]) => isFsDirectory(t));
     const dirs = await mapPool(dirEntries, LIST_DIR_CONCURRENCY, async ([name]) => {
       const childUri = vscode.Uri.joinPath(parentUri, name);
       const hasKids = await this.directoryHasVisibleChildren(childUri, showFiles);
@@ -312,7 +313,7 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
     if (!showFiles) {
       return dirs;
     }
-    const fileEntries = entries.filter(([, t]) => t === vscode.FileType.File);
+    const fileEntries = entries.filter(([, t]) => isFsFile(t));
     fileEntries.sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }));
     const files = fileEntries.map(([name]) =>
       new FolderTreeItem(
@@ -398,7 +399,7 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
     } catch {
       return undefined;
     }
-    if (stat.type !== vscode.FileType.File) {
+    if (!isFsFile(stat.type)) {
       return undefined;
     }
     const name = path.basename(fileUri.fsPath);

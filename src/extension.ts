@@ -11,6 +11,7 @@ import {
   syncShowFilesInTreeContext,
   getShowFilesInFolderTreeFromWorkspaceState,
 } from "./filePaneSettings";
+import { isFsDirectory, isFsFile } from "./fileTypeUtils";
 import { FolderTreeDataProvider, FolderTreeItem } from "./folderTreeDataProvider";
 import { GitFileStatusService } from "./gitFileStatusService";
 
@@ -305,7 +306,7 @@ export function activate(context: vscode.ExtensionContext): void {
       docStat = undefined;
     }
 
-    if (showFilesInTree && docStat?.type === vscode.FileType.File) {
+    if (showFilesInTree && docStat && isFsFile(docStat.type)) {
       const fileItem = await folderData.getTreeItemForFileUri(docUri);
       if (fileItem) {
         try {
@@ -318,7 +319,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     let folderFs = path.normalize(path.dirname(docUri.fsPath));
-    if (docStat?.type === vscode.FileType.Directory) {
+    if (docStat && isFsDirectory(docStat.type)) {
       folderFs = path.normalize(docUri.fsPath);
     }
     const folderUri = vscode.Uri.file(folderFs);

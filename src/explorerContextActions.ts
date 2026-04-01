@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
+import { isFsDirectory } from "./fileTypeUtils";
 
 /** Label for revealFileInOS (Explorer wording varies by platform). */
 export function revealInOsMenuTitle(): string {
@@ -47,8 +48,7 @@ export async function openInIntegratedTerminal(uri: vscode.Uri): Promise<void> {
   let folderUri: vscode.Uri;
   try {
     const stat = await vscode.workspace.fs.stat(uri);
-    folderUri =
-      stat.type === vscode.FileType.Directory ? uri : vscode.Uri.file(path.dirname(uri.fsPath));
+    folderUri = isFsDirectory(stat.type) ? uri : vscode.Uri.file(path.dirname(uri.fsPath));
   } catch {
     folderUri = vscode.Uri.file(path.dirname(uri.fsPath));
   }
@@ -144,7 +144,7 @@ export async function deleteResource(uri: vscode.Uri, onChanged: () => void): Pr
   let nonEmptyDir = false;
   try {
     const stat = await vscode.workspace.fs.stat(uri);
-    isDir = stat.type === vscode.FileType.Directory;
+    isDir = isFsDirectory(stat.type);
     if (isDir) {
       const kids = await vscode.workspace.fs.readDirectory(uri);
       nonEmptyDir = kids.length > 0;
@@ -273,7 +273,7 @@ export async function runTestsForExplorerItem(uri: vscode.Uri): Promise<void> {
   let isDir = false;
   try {
     const stat = await vscode.workspace.fs.stat(uri);
-    isDir = stat.type === vscode.FileType.Directory;
+    isDir = isFsDirectory(stat.type);
   } catch {
     void vscode.window.showWarningMessage("Impossible de lire la ressource.");
     return;

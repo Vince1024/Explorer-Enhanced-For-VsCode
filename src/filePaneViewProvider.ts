@@ -5,6 +5,7 @@ import { collectOpenWorkspaceFilePaths, getActiveWorkspaceFileUri } from "./acti
 import * as actions from "./explorerContextActions";
 import { mapPool } from "./asyncPool";
 import { computeDirectorySizeBytes } from "./folderSizeUtils";
+import { isFsDirectory, isFsFile } from "./fileTypeUtils";
 import {
   DEFAULT_DATE_TIME_CUSTOM_PATTERN,
   FILES_PANE_VIEW_LAYOUT_STATE_KEY,
@@ -640,15 +641,17 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       const entries = await vscode.workspace.fs.readDirectory(folderUri);
       collected = [];
       for (const [name, type] of entries) {
-        if (type === vscode.FileType.File) {
+        if (isFsFile(type)) {
           collected.push({ name, fileType: type });
-        } else if (showFoldersInList && type === vscode.FileType.Directory) {
+        } else if (showFoldersInList && isFsDirectory(type)) {
           collected.push({ name, fileType: type });
         }
       }
       collected.sort((a, b) => {
-        if (a.fileType !== b.fileType) {
-          return a.fileType === vscode.FileType.Directory ? -1 : 1;
+        const aDir = isFsDirectory(a.fileType);
+        const bDir = isFsDirectory(b.fileType);
+        if (aDir !== bDir) {
+          return aDir ? -1 : 1;
         }
         return FILES_NAME_COLLATOR.compare(a.name, b.name);
       });
@@ -659,7 +662,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     if (showProblemsInFiles) {
       const filePaths: string[] = [];
       for (const e of collected) {
-        if (e.fileType === vscode.FileType.File) {
+        if (isFsFile(e.fileType)) {
           filePaths.push(vscode.Uri.joinPath(folderUri, e.name).fsPath);
         }
       }
@@ -667,7 +670,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     }
     return mapPool(collected, FILE_STAT_CONCURRENCY, async (e): Promise<FileViewRowPayload> => {
       const childUri = vscode.Uri.joinPath(folderUri, e.name);
-      if (e.fileType === vscode.FileType.Directory) {
+      if (isFsDirectory(e.fileType)) {
         let folderSizeBytes = 0;
         let folderPending = false;
         if (showFolderSize) {
