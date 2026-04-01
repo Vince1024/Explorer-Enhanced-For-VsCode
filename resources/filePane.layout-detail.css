@@ -1,0 +1,40 @@
+/**
+ * Files pane — Details layout (Name, Modified, Size, Git; column resize handles).
+ * body.explorer-enhanced-layout-detail is toggled from filePane.js when viewLayout === "detail".
+ * Shared shell + table base: filePane.common.css. List-only overrides: filePane.layout-list.css.
+ *
+ * Keep all selectors scoped to .explorer-enhanced-layout-detail so they never fight List mode.
+ */
+
+/* Comme en Liste : pas de colonne status (œil) si Git et Problems sont tous les deux off. */
+body.explorer-enhanced-layout-detail:not(.explorer-enhanced-show-git):not(.explorer-enhanced-show-problems) #grid-head thead th:nth-child(4),
+body.explorer-enhanced-layout-detail:not(.explorer-enhanced-show-git):not(.explorer-enhanced-show-problems) #grid tbody td:nth-child(4) {
+  width: 0;
+  max-width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  white-space: nowrap;
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+  pointer-events: none;
+}
+
+/* Détail : min-width status seulement quand Git ou Problems est affiché (% depuis filePane.columns.js). */
+body.explorer-enhanced-layout-detail.explorer-enhanced-show-git .files-grid-surface col.grid-col-status,
+body.explorer-enhanced-layout-detail.explorer-enhanced-show-problems .files-grid-surface col.grid-col-status {
+  min-width: 2.5rem;
+}
+
+/* List & Details: toggle row separators via Settings → Show lines (Icons ignore — table body hidden). */
+body.explorer-enhanced-layout-detail:not(.explorer-enhanced-show-row-lines) #grid-head thead th,
+body.explorer-enhanced-layout-detail:not(.explorer-enhanced-show-row-lines) #grid tbody td {
+  border-bottom: none;
+}
+
+/* Show columns : séparateurs verticaux uniquement sur le corps (évite grille sur #grid-head + décalage). */
+body.explorer-enhanced-layout-detail.explorer-enhanced-show-column-lines #grid tbody td:not(:last-child) {
+  border-right: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.3));
+}

@@ -1,0 +1,363 @@
+{
+  "name": "explorer-enhanced",
+  "displayName": "Explorer Enhanced",
+  "description": "Folder-first navigation with a Files webview (table: name, modified, size; codicon-based toolbar).",
+  "icon": "images/explorer-enhanced.png",
+  "version": "0.0.1",
+  "publisher": "Vincent1024",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Vince1024/Explorer-Enhanced-For-VsCode.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:explorer-enhanced.folderTree",
+    "onView:explorer-enhanced.filePane",
+    "onCommand:explorer-enhanced.focus"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "explorer-enhanced",
+          "title": "Explorer Enhanced",
+          "icon": "$(folder)"
+        }
+      ]
+    },
+    "views": {
+      "explorer-enhanced": [
+        {
+          "id": "explorer-enhanced.folderTree",
+          "name": "Folders"
+        },
+        {
+          "type": "webview",
+          "id": "explorer-enhanced.filePane",
+          "name": "Files"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Explorer Enhanced",
+      "properties": {
+        "explorer-enhanced.files.dateTimeFormat": {
+          "type": "string",
+          "default": "locale",
+          "enum": [
+            "locale",
+            "localeDate",
+            "localeTime",
+            "iso",
+            "relative",
+            "custom"
+          ],
+          "enumDescriptions": [
+            "Full locale date and time (default, same as before).",
+            "Locale date only.",
+            "Locale time only.",
+            "ISO 8601 (UTC).",
+            "Relative for recent times (e.g. “5 min ago”), otherwise a short locale date.",
+            "Pattern from **Files: Date Time Custom Pattern** (e.g. DD-MM-YYYY HH:mm:ss)."
+          ],
+          "markdownDescription": "How the **Modified** column is shown in the **Files** view."
+        },
+        "explorer-enhanced.files.dateTimeCustomPattern": {
+          "type": "string",
+          "default": "DD-MM-YYYY HH:mm:ss",
+          "markdownDescription": "Used when **Files: Date Time Format** is `custom`. Tokens: `YYYY`/`yyyy`, `YY`/`yy`, `MM` (month, 2 digits), `DD` (day), `HH` (24h), `mm` (minutes, **lowercase**), `ss`, `SSS` (milliseconds). Other characters (spaces, `-`, `:`, …) are copied as-is. Values use the local timezone."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "explorer-enhanced.focus",
+        "title": "Explorer Enhanced: Show",
+        "category": "Explorer Enhanced"
+      },
+      {
+        "command": "explorer-enhanced.showFoldersInList",
+        "title": "Show subfolders in Files list",
+        "category": "Explorer Enhanced",
+        "icon": "$(folder)"
+      },
+      {
+        "command": "explorer-enhanced.hideFoldersInList",
+        "title": "Hide subfolders in Files list",
+        "category": "Explorer Enhanced",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "explorer-enhanced.viewLayout.list",
+        "title": "List",
+        "category": "Explorer Enhanced",
+        "icon": "$(list-flat)"
+      },
+      {
+        "command": "explorer-enhanced.viewLayout.detail",
+        "title": "Details",
+        "category": "Explorer Enhanced",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "explorer-enhanced.viewLayout.icons",
+        "title": "Icons",
+        "category": "Explorer Enhanced",
+        "icon": "$(gallery)"
+      },
+      {
+        "command": "explorer-enhanced.folders.showFilesInTree",
+        "title": "Show files in Folders tree",
+        "category": "Explorer Enhanced",
+        "icon": "$(folder)"
+      },
+      {
+        "command": "explorer-enhanced.folders.hideFilesInTree",
+        "title": "Hide files in Folders tree (folders only)",
+        "category": "Explorer Enhanced",
+        "icon": "$(file)"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.newFile",
+        "title": "New File..."
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.newFolder",
+        "title": "New Folder..."
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.refresh",
+        "title": "Refresh"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.revealInExplorer",
+        "title": "Reveal in Explorer View"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.revealInOs.win",
+        "title": "Reveal in File Explorer"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.revealInOs.macos",
+        "title": "Reveal in Finder"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.revealInOs.linux",
+        "title": "Open Containing Folder"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.revealInOs.other",
+        "title": "Reveal in OS"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.openInTerminal",
+        "title": "Open in Integrated Terminal"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.copyPath",
+        "title": "Copy Path"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.copyRelativePath",
+        "title": "Copy Relative Path"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.rename",
+        "title": "Rename..."
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.delete",
+        "title": "Delete"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "explorer-enhanced.ctx.folder.newFile",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.newFolder",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.refresh",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.revealInExplorer",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.revealInOs.win",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.revealInOs.macos",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.revealInOs.linux",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.revealInOs.other",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.openInTerminal",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.copyPath",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.copyRelativePath",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.rename",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.delete",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.showFoldersInList",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.hideFoldersInList",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.viewLayout.list",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.viewLayout.detail",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.viewLayout.icons",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.folders.showFilesInTree",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.folders.hideFilesInTree",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "explorer-enhanced.folders.showFilesInTree",
+          "when": "view == explorer-enhanced.folderTree && !explorer-enhanced.showFilesInTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "explorer-enhanced.folders.hideFilesInTree",
+          "when": "view == explorer-enhanced.folderTree && explorer-enhanced.showFilesInTree",
+          "group": "navigation@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "explorer-enhanced.ctx.folder.newFile",
+          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.folder",
+          "group": "navigation@1"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.newFolder",
+          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.folder",
+          "group": "navigation@2"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.refresh",
+          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.folder",
+          "group": "navigation@10"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.revealInExplorer",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "group": "3_open@1"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.revealInOs.win",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile) && isWindows",
+          "group": "3_open@2"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.revealInOs.macos",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile) && isMac",
+          "group": "3_open@2"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.revealInOs.linux",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile) && isLinux",
+          "group": "3_open@2"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.revealInOs.other",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile) && !isWindows && !isMac && !isLinux",
+          "group": "3_open@2"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.openInTerminal",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "group": "3_open@5"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.copyPath",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "group": "5_cutcopypaste@1"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.copyRelativePath",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "group": "5_cutcopypaste@2"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.rename",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "group": "7_modification@1"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.delete",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "group": "7_modification@2"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint \"src/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" --fix",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^8.18.0"
+  },
+  "dependencies": {
+    "@vscode/codicons": "^0.0.45"
+  }
+}

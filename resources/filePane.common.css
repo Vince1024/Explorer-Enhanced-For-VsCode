@@ -1,0 +1,506 @@
+/* Shared Files webview styles: toolbar, menus, table base, Git badges. Layout-specific overrides: filePane.layout-detail.css, filePane.layout-list.css */
+:root {
+  --explorer-enhanced-files-pane-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+html, body { height: 100%; }
+body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); margin: 0; padding: 0; overflow: hidden; }
+/* Colonne scrollable séparée : la scrollbar ne couvre pas le topbar ni la ligne d’en-têtes (grid-head). */
+.files-pane-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.files-scroll-main {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 8px 8px 8px;
+}
+.files-grid-head-wrap {
+  flex-shrink: 0;
+  /* Même largeur utile que #grid dans .files-scroll-main (déduction scrollbar verticale via --explorer-enhanced-files-scrollbar-w, filePane.js). */
+  padding: 0 calc(8px + var(--explorer-enhanced-files-scrollbar-w, 0px)) 0 8px;
+  background: var(--explorer-enhanced-files-pane-bg);
+  border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3));
+}
+.files-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  min-height: 22px;
+  flex-shrink: 0;
+  padding: 8px 8px 8px 8px;
+  background: var(--explorer-enhanced-files-pane-bg);
+  border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3));
+}
+.files-topbar-left { flex: 1; min-width: 0; }
+.files-topbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.files-icon-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.35));
+  border-radius: 3px;
+  background: var(--vscode-button-secondaryBackground, rgba(127, 127, 127, 0.18));
+  color: var(--vscode-icon-foreground);
+  cursor: pointer;
+}
+.files-icon-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.28));
+}
+.files-icon-btn:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+.files-icon-btn .codicon {
+  font-size: 14px;
+  line-height: 1;
+}
+.views-menu {
+  position: fixed;
+  z-index: 10000;
+  display: none;
+  min-width: 100px;
+  max-width: 200px;
+  padding: 4px 0;
+  margin: 0;
+  list-style: none;
+  background: var(--vscode-menu-background);
+  color: var(--vscode-menu-foreground);
+  border: 1px solid var(--vscode-menu-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.36);
+  font-size: var(--vscode-font-size);
+}
+.views-menu.views-menu--open { display: block; }
+.views-menu.settings-menu {
+  max-width: 260px;
+}
+.views-menu li.views-menu-sep {
+  height: 1px;
+  padding: 0;
+  margin: 4px 8px;
+  min-height: 0;
+  background: var(--vscode-menu-separatorBackground);
+  cursor: default;
+  pointer-events: none;
+  list-style: none;
+}
+.views-menu li.views-menu-sep:hover {
+  background: var(--vscode-menu-separatorBackground);
+}
+.views-menu li[data-layout],
+.views-menu li[role="menuitemcheckbox"] {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-height: 24px;
+  padding: 2px 8px 2px 4px;
+  margin: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.views-menu li[data-layout]:hover,
+.views-menu li[role="menuitemcheckbox"]:hover {
+  background: var(--vscode-menu-selectionBackground);
+  color: var(--vscode-menu-selectionForeground);
+}
+.views-menu li[data-layout]:hover .views-menu-ico,
+.views-menu li[role="menuitemcheckbox"]:hover .views-menu-ico {
+  color: var(--vscode-menu-selectionForeground);
+}
+.views-menu-check {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.views-menu-check::after {
+  content: '';
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.95;
+}
+.views-menu li.views-menu-active .views-menu-check::after { display: block; }
+.views-menu-ico {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--vscode-icon-foreground);
+}
+.views-menu-ico .codicon { font-size: 16px; line-height: 1; display: block; }
+/* Show lines / Show columns : même picto « menu » (3 traits horizontaux) ; colonnes = rotation 90° → 3 traits verticaux. */
+.views-menu-ico .settings-menu-burger-90 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  transform: rotate(90deg);
+  transform-origin: center center;
+}
+.views-ico-explorer {
+  display: block;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--vscode-icon-foreground);
+}
+.views-menu-ico .views-ico-explorer {
+  color: inherit;
+}
+.files-icon-btn .views-ico-explorer {
+  color: inherit;
+}
+.views-menu-trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  position: relative;
+}
+.views-menu-trigger-icon svg[hidden] {
+  display: none;
+}
+.views-menu-txt {
+  flex: 1;
+  min-width: 0;
+  padding-left: 2px;
+}
+.files-path-hint { opacity: 0.85; word-break: break-all; line-height: 1.35; }
+.files-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* separate + spacing 0 : alignement colonnes stable entre #grid-head et #grid. */
+table.files-grid-surface { width: 100%; margin: 0; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+.files-scroll-main #iconsPane { margin-top: 0; }
+th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3)); vertical-align: middle; }
+th { user-select: none; font-weight: 600; }
+/* Fond sur les `td` (pas seulement le `tr`) : évite des hauteurs de ligne visuellement irrégulières avec Highlight open files / sélection active (Chromium + border-collapse). */
+#grid tbody tr[data-path]:hover > td {
+  background: var(--vscode-list-hoverBackground);
+}
+#grid tbody tr[data-path]:hover {
+  cursor: pointer;
+}
+/* Même hauteur de ligne pour toutes les variantes (neutre, ouvert, actif éditeur). */
+#grid tbody tr[data-path] {
+  height: 26px;
+}
+#grid tbody tr[data-path].files-open-in-editor:not(.editor-active) > td {
+  background: var(--vscode-list-inactiveSelectionBackground, rgba(127, 127, 127, 0.22));
+}
+#grid tbody tr[data-path].files-open-in-editor:not(.editor-active):hover > td {
+  background: var(--vscode-list-hoverBackground);
+}
+#grid tbody tr[data-path].editor-active > td {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+#grid tbody tr[data-path].editor-active:hover > td {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+/*
+ * Hauteur de ligne uniforme (liste + détail) : hauteur fixe des cellules pour neutraliser les
+ * écarts dus à l’icône, aux badges git et aux line-height hérités différents.
+ */
+#grid tbody tr[data-path] > td {
+  /* Proche du rendu d’origine (padding 4+4 + une ligne ~18px) tout en gardant la hauteur fixe. */
+  height: 26px;
+  max-height: 26px;
+  min-height: 26px;
+  line-height: 18px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+/* Status : pas de line-height sur la td elle-même (voir .status-cell + .status-cell-inner). */
+#grid tbody tr[data-path] > td.status-cell {
+  line-height: 0;
+}
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.name-cell { overflow: hidden; }
+td.name-cell .name-row { display: flex; align-items: center; gap: 6px; min-width: 0; height: 18px; }
+/* Fallback when icon uses fill: currentColor (unknown extensions). */
+td.name-cell .file-icon {
+  flex-shrink: 0;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  color: var(--vscode-icon-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+td.name-cell .file-icon svg { display: block; width: 16px; height: 16px; }
+td.name-cell .file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 18px;
+}
+/* En-têtes de colonnes : table #grid-head hors zone scroll (voir filePane.shell.html). */
+#grid-head thead th {
+  position: relative;
+  background: var(--explorer-enhanced-files-pane-bg);
+  padding-right: 10px;
+  /* Pas de grille sur l’en-tête : séparateur sous la ligne = bordure du wrap uniquement. */
+  border-bottom: none;
+}
+thead th .th-label { pointer-events: auto; cursor: pointer; }
+thead th .th-label:hover { opacity: 0.92; }
+thead th .sort-indicator { opacity: 0.75; font-size: 0.85em; margin-left: 2px; user-select: none; }
+.col-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 8px;
+  margin-right: -4px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+  user-select: none;
+}
+.col-resize-handle:hover,
+.col-resize-handle.active {
+  background: var(--vscode-focusBorder, var(--vscode-foreground));
+  opacity: 0.35;
+}
+/* List-only Name|status handle on status column header; hidden in Details (see filePane.layout-list.css). */
+.col-resize-handle--list {
+  display: none;
+}
+.ctx-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 220px;
+  max-width: min(420px, 100vw - 8px);
+  padding: 4px 0;
+  margin: 0;
+  list-style: none;
+  background: var(--vscode-menu-background);
+  color: var(--vscode-menu-foreground);
+  border: 1px solid var(--vscode-menu-border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.24);
+  font-size: var(--vscode-font-size);
+}
+.ctx-menu li.ctx-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ctx-menu li.ctx-menu-row:hover {
+  background: var(--vscode-menu-selectionBackground);
+  color: var(--vscode-menu-selectionForeground);
+}
+.ctx-menu .ctx-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-menu .ctx-menu-key {
+  flex-shrink: 0;
+  opacity: 0.72;
+  font-size: 0.9em;
+  letter-spacing: 0.02em;
+}
+.ctx-menu li.ctx-menu-row:hover .ctx-menu-key {
+  opacity: 0.9;
+}
+.ctx-menu li.ctx-sep { height: 1px; padding: 0; margin: 4px 8px; background: var(--vscode-menu-separatorBackground); cursor: default; pointer-events: none; }
+.ctx-menu li.ctx-sep:hover { background: var(--vscode-menu-separatorBackground); }
+.files-grid-surface col.grid-col-status { width: 0; visibility: collapse; }
+body.explorer-enhanced-show-git .files-grid-surface col.grid-col-status,
+body.explorer-enhanced-show-problems .files-grid-surface col.grid-col-status {
+  visibility: visible;
+}
+th.status-col {
+  text-align: right;
+  font-weight: 600;
+  /* position via thead th : relative pour les poignées ; pas de relative ici pour ne pas casser le sticky du bloc thead */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+/* Même gouttière que td.status-cell (évite le padding-right: 10px des autres th). */
+thead th.status-col {
+  padding: 4px 6px 4px 2px;
+}
+/* œil : bloc calé à droite du th ; poignée list en position absolute à gauche. */
+.status-header-viz {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 1.25em;
+  box-sizing: border-box;
+}
+.status-header-eye {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--vscode-icon-foreground);
+  opacity: 0.92;
+}
+td.status-cell {
+  text-align: end;
+  padding: 4px 6px 4px 2px;
+  vertical-align: middle;
+}
+.status-cell-inner {
+  /* flex (bloc), pas inline-flex : évite baseline / line box dans la td, cause fréquente d’écarts de hauteur selon git/pb. */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  /* pas de gap : sinon "3" + espace + "," => "3 , U" au lieu de "3, U" */
+  gap: 0;
+  max-width: 100%;
+  width: 100%;
+  height: 18px;
+  max-height: 18px;
+  min-height: 0;
+  line-height: 18px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.status-cell-git,
+.status-cell-prob {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  line-height: 1;
+  max-height: 18px;
+}
+.status-cell-sep {
+  flex-shrink: 0;
+  color: var(--vscode-descriptionForeground);
+  font-weight: 500;
+  font-size: 0.92em;
+  line-height: 1;
+  user-select: none;
+  pointer-events: none;
+}
+.status-cell-inner .prob-badges {
+  flex-shrink: 0;
+}
+.status-cell-inner .git-letter,
+.status-cell-inner .git-dot {
+  flex-shrink: 0;
+}
+.status-cell-inner .git-letter {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+}
+.git-letter {
+  font-weight: 600;
+  font-size: 0.92em;
+  line-height: 1;
+  user-select: none;
+}
+.git-letter--modified { color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-foreground)); }
+.git-letter--added { color: var(--vscode-gitDecoration-addedResourceForeground, var(--vscode-foreground)); }
+.git-letter--deleted { color: var(--vscode-gitDecoration-deletedResourceForeground, var(--vscode-foreground)); }
+.git-letter--renamed { color: var(--vscode-gitDecoration-renamedResourceForeground, var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-foreground))); }
+.git-letter--copied { color: var(--vscode-gitDecoration-untrackedResourceForeground, var(--vscode-foreground)); }
+.git-letter--untracked { color: var(--vscode-gitDecoration-untrackedResourceForeground, var(--vscode-foreground)); }
+.git-letter--ignored { color: var(--vscode-gitDecoration-ignoredResourceForeground, var(--vscode-descriptionForeground)); }
+.git-letter--conflict { color: var(--vscode-gitDecoration-conflictingResourceForeground, var(--vscode-errorForeground)); }
+.git-letter--none { color: var(--vscode-descriptionForeground); }
+tr.editor-active .git-letter { color: var(--vscode-list-activeSelectionForeground); }
+/* Folder rows: Explorer-style status dot (Folders tree), not a letter. */
+.git-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.git-dot--modified { background-color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-foreground)); }
+.git-dot--added { background-color: var(--vscode-gitDecoration-addedResourceForeground, var(--vscode-foreground)); }
+.git-dot--deleted { background-color: var(--vscode-gitDecoration-deletedResourceForeground, var(--vscode-foreground)); }
+.git-dot--renamed { background-color: var(--vscode-gitDecoration-renamedResourceForeground, var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-foreground))); }
+.git-dot--copied { background-color: var(--vscode-gitDecoration-untrackedResourceForeground, var(--vscode-foreground)); }
+.git-dot--untracked { background-color: var(--vscode-gitDecoration-untrackedResourceForeground, var(--vscode-foreground)); }
+.git-dot--ignored { background-color: var(--vscode-gitDecoration-ignoredResourceForeground, var(--vscode-descriptionForeground)); }
+.git-dot--conflict { background-color: var(--vscode-gitDecoration-conflictingResourceForeground, var(--vscode-errorForeground)); }
+.git-dot--none { background-color: var(--vscode-descriptionForeground); }
+tr.editor-active .git-dot { background-color: var(--vscode-list-activeSelectionForeground); }
+.status-cell .prob-badges {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: 3px;
+  max-width: 100%;
+  max-height: 18px;
+  line-height: 1;
+}
+.prob-badge {
+  font-weight: 700;
+  font-size: 0.92em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  min-width: 0.9em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.prob-badge--error { color: var(--vscode-errorForeground, var(--vscode-foreground)); }
+.prob-badge--warning { color: var(--vscode-list-warningForeground, var(--vscode-editorWarning-foreground, var(--vscode-foreground))); }
+.prob-badge--info { color: var(--vscode-descriptionForeground, var(--vscode-foreground)); }
+tr.editor-active .prob-badge { color: var(--vscode-list-activeSelectionForeground); }
+
+/* Spinner pendant le calcul de la taille de dossier (liste / grille) */
+.explorer-enhanced-folder-size-spin {
+  display: inline-block;
+  vertical-align: -0.12em;
+  font-size: 0.95em;
+  line-height: 1;
+  animation: explorer-enhanced-folder-size-spin-kf 0.85s linear infinite;
+}
+@keyframes explorer-enhanced-folder-size-spin-kf {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

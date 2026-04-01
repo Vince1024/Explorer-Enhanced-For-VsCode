@@ -1,0 +1,78 @@
+/**
+ * Files pane — List layout (compact: Name + optional combined status column; Modified/Size hidden).
+ * body.explorer-enhanced-layout-list is toggled from filePane.js when viewLayout === "list".
+ */
+/*
+ * Four logical columns (colgroup order: Modified=2, Size=3, Status=4).
+ * Do not use display:none on cells: it drops columns from the table grid.
+ */
+body.explorer-enhanced-layout-list .files-grid-surface col:nth-child(2),
+body.explorer-enhanced-layout-list .files-grid-surface col:nth-child(3) {
+  width: 0 !important;
+  max-width: 0;
+}
+body.explorer-enhanced-layout-list:not(.explorer-enhanced-show-git):not(.explorer-enhanced-show-problems) .files-grid-surface col:nth-child(1) {
+  width: 100% !important;
+}
+body.explorer-enhanced-layout-list #grid-head thead th:nth-child(2),
+body.explorer-enhanced-layout-list #grid-head thead th:nth-child(3),
+body.explorer-enhanced-layout-list #grid tbody td:nth-child(2),
+body.explorer-enhanced-layout-list #grid tbody td:nth-child(3) {
+  width: 0;
+  max-width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  white-space: nowrap;
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+  pointer-events: none;
+}
+body.explorer-enhanced-layout-list:not(.explorer-enhanced-show-git):not(.explorer-enhanced-show-problems) #grid-head thead th:nth-child(4),
+body.explorer-enhanced-layout-list:not(.explorer-enhanced-show-git):not(.explorer-enhanced-show-problems) #grid tbody td:nth-child(4) {
+  width: 0;
+  max-width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  white-space: nowrap;
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+  pointer-events: none;
+}
+body.explorer-enhanced-layout-list thead .col-resize-handle:not(.col-resize-handle--list) {
+  display: none;
+}
+body.explorer-enhanced-layout-list th.status-col {
+  position: relative;
+}
+body.explorer-enhanced-layout-list th.status-col .col-resize-handle--list {
+  display: block;
+  left: 0;
+  right: auto;
+  margin-left: -4px;
+  margin-right: 0;
+}
+body.explorer-enhanced-layout-list:not(.explorer-enhanced-show-git):not(.explorer-enhanced-show-problems) th.status-col .col-resize-handle--list {
+  display: none;
+}
+body.explorer-enhanced-layout-list:not(.explorer-enhanced-show-row-lines) #grid-head thead th,
+body.explorer-enhanced-layout-list:not(.explorer-enhanced-show-row-lines) #grid tbody td {
+  border-bottom: none;
+}
+body.explorer-enhanced-layout-list.explorer-enhanced-show-git th.status-col,
+body.explorer-enhanced-layout-list.explorer-enhanced-show-git td.status-cell,
+body.explorer-enhanced-layout-list.explorer-enhanced-show-problems th.status-col,
+body.explorer-enhanced-layout-list.explorer-enhanced-show-problems td.status-cell {
+  min-width: 2rem;
+  box-sizing: border-box;
+}
+
+/* Settings → Show columns: line between Name and status column when status is visible (cols 2–3 collapsed). */
+body.explorer-enhanced-layout-list.explorer-enhanced-show-column-lines:is(.explorer-enhanced-show-git, .explorer-enhanced-show-problems) #grid tbody td:nth-child(1) {
+  border-right: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.3));
+}

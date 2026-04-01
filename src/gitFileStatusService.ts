@@ -1,0 +1,439 @@
+import * as path from "path";
+import * as vscode from "vscode";
+
+/**
+ * Stable view-model for any UI (Files webview, future views). Maps from built-in Git extension statuses.
+ * @see https://github.com/microsoft/vscode/blob/main/extensions/git/src/api/git.d.ts
+ */
+export type FileGitStatusKind =
+  | "modified"
+  | "added"
+  | "deleted"
+  | "renamed"
+  | "copied"
+  | "untracked"
+  | "ignored"
+  | "conflict";
+
+export interface FileGitStatusModel {
+  /** Single-letter badge (Explorer-style). */
+  readonly letter: string;
+  readonly kind: FileGitStatusKind;
+}
+
+/** Serializable file row for file-list webviews (shared contract for Files and future views). */
+export interface FileViewRowPayload {
+  name: string;
+  path: string;
+  mtime: number;
+  size: number;
+  /** Omitted or `"file"` for files; `"folder"` when subfolders are listed in Files. */
+  kind?: "file" | "folder";
+  /** Folder size is still being computed (Display folder size option). */
+  folderSizePending?: boolean;
+  git?: { letter: string; kind: FileGitStatusKind };
+  /** From {@link vscode.languages.getDiagnostics} when Problems column is enabled (files only). */
+  problems?: { errors: number; warnings: number; infos: number };
+}
+
+/** Numeric values must match `Status` in vscode.git `git.d.ts` (order from 0). */
+const enum GitStatus {
+  INDEX_MODIFIED,
+  INDEX_ADDED,
+  INDEX_DELETED,
+  INDEX_RENAMED,
+  INDEX_COPIED,
+  MODIFIED,
+  DELETED,
+  UNTRACKED,
+  IGNORED,
+  INTENT_TO_ADD,
+  INTENT_TO_RENAME,
+  TYPE_CHANGED,
+  ADDED_BY_US,
+  ADDED_BY_THEM,
+  DELETED_BY_US,
+  DELETED_BY_THEM,
+  BOTH_ADDED,
+  BOTH_DELETED,
+  BOTH_MODIFIED,
+}
+
+function gitStatusToModel(status: number): FileGitStatusModel | undefined {
+  switch (status) {
+    case GitStatus.INDEX_MODIFIED:
+    case GitStatus.MODIFIED:
+    case GitStatus.TYPE_CHANGED:
+      return { letter: "M", kind: "modified" };
+    case GitStatus.INDEX_ADDED:
+    case GitStatus.INTENT_TO_ADD:
+      return { letter: "A", kind: "added" };
+    case GitStatus.INDEX_DELETED:
+    case GitStatus.DELETED:
+    case GitStatus.DELETED_BY_US:
+    case GitStatus.DELETED_BY_THEM:
+    case GitStatus.BOTH_DELETED:
+      return { letter: "D", kind: "deleted" };
+    case GitStatus.INDEX_RENAMED:
+    case GitStatus.INTENT_TO_RENAME:
+      return { letter: "R", kind: "renamed" };
+    case GitStatus.INDEX_COPIED:
+      return { letter: "C", kind: "copied" };
+    case GitStatus.UNTRACKED:
+      return { letter: "U", kind: "untracked" };
+    case GitStatus.IGNORED:
+      return { letter: "—", kind: "ignored" };
+    case GitStatus.ADDED_BY_US:
+    case GitStatus.ADDED_BY_THEM:
+    case GitStatus.BOTH_ADDED:
+    case GitStatus.BOTH_MODIFIED:
+      return { letter: "!", kind: "conflict" };
+    default:
+      return undefined;
+  }
+}
+
+/** Minimal typings for `vscode.git` exports (avoid runtime dependency on git’s types). */
+interface GitChange {
+  readonly uri: vscode.Uri;
+  readonly status: number;
+}
+
+interface GitRepositoryState {
+  readonly mergeChanges: readonly GitChange[];
+  readonly indexChanges: readonly GitChange[];
+  readonly workingTreeChanges: readonly GitChange[];
+  readonly untrackedChanges: readonly GitChange[];
+  readonly onDidChange: vscode.Event<void>;
+}
+
+interface GitRepository {
+  readonly rootUri: vscode.Uri;
+  readonly state: GitRepositoryState;
+}
+
+type APIState = "uninitialized" | "initialized";
+
+interface GitAPI {
+  readonly state: APIState;
+  readonly onDidChangeState: vscode.Event<void>;
+  readonly repositories: readonly GitRepository[];
+  readonly onDidOpenRepository: vscode.Event<GitRepository>;
+  readonly onDidCloseRepository: vscode.Event<GitRepository>;
+  getRepository(uri: vscode.Uri): GitRepository | null | undefined;
+}
+
+interface GitExtensionExports {
+  getAPI(version: 1): GitAPI;
+}
+
+/** Coalesce bursty git state signals into one UI refresh. */
+const GIT_BUMP_DEBOUNCE_MS = 90;
+
+function pathsEqualFile(aFs: string, bFs: string): boolean {
+  const na = path.normalize(aFs);
+  const nb = path.normalize(bFs);
+  if (process.platform === "win32") {
+    return na.toLowerCase() === nb.toLowerCase();
+  }
+  return na === nb;
+}
+
+/** Priority for folder roll-up: when several changes apply under one folder, the highest value wins. */
+function gitStatusPriority(status: number): number {
+  switch (status) {
+    case GitStatus.ADDED_BY_US:
+    case GitStatus.ADDED_BY_THEM:
+    case GitStatus.BOTH_ADDED:
+    case GitStatus.BOTH_MODIFIED:
+      return 100;
+    case GitStatus.INDEX_DELETED:
+    case GitStatus.DELETED:
+    case GitStatus.DELETED_BY_US:
+    case GitStatus.DELETED_BY_THEM:
+    case GitStatus.BOTH_DELETED:
+      return 90;
+    case GitStatus.INDEX_MODIFIED:
+    case GitStatus.MODIFIED:
+    case GitStatus.TYPE_CHANGED:
+      return 70;
+    case GitStatus.INDEX_RENAMED:
+    case GitStatus.INTENT_TO_RENAME:
+      return 65;
+    case GitStatus.INDEX_COPIED:
+      return 60;
+    case GitStatus.INDEX_ADDED:
+    case GitStatus.INTENT_TO_ADD:
+      return 50;
+    case GitStatus.UNTRACKED:
+      return 40;
+    case GitStatus.IGNORED:
+      return 10;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Walk from `startFs` up to `rootFs` (inclusive): invokes `onSegment` for the start path, then each parent directory.
+ * Used to propagate folder roll-up to every ancestor of a changed path.
+ */
+function forEachAncestorPathToRoot(startFs: string, rootFs: string, onSegment: (segmentNorm: string) => void): void {
+  const rootNorm = path.normalize(rootFs);
+  let cur = path.normalize(startFs);
+  while (true) {
+    onSegment(cur);
+    if (pathsEqualFile(cur, rootNorm)) {
+      break;
+    }
+    const parent = path.dirname(cur);
+    if (pathsEqualFile(parent, cur)) {
+      break;
+    }
+    cur = parent;
+  }
+}
+
+interface RepoGitIndex {
+  /** Direct path lookup: first SCM bucket wins (merge → index → working tree → untracked), matching Explorer file rows. */
+  readonly fileByPath: ReadonlyMap<string, GitChange>;
+  /** Per directory path: best change among all repo changes at or below that path (Explorer-style folder roll-up). */
+  readonly folderRollupByPath: ReadonlyMap<string, GitChange>;
+}
+
+/** Snapshot of Git SCM lists into maps; rebuilt whenever that repository’s state changes. */
+function buildRepoGitIndex(repo: GitRepository): RepoGitIndex {
+  const fileByPath = new Map<string, GitChange>();
+  const addFirstBucketWins = (changes: readonly GitChange[]): void => {
+    for (const c of changes) {
+      const k = path.normalize(c.uri.fsPath);
+      if (!fileByPath.has(k)) {
+        fileByPath.set(k, c);
+      }
+    }
+  };
+  addFirstBucketWins(repo.state.mergeChanges);
+  addFirstBucketWins(repo.state.indexChanges);
+  addFirstBucketWins(repo.state.workingTreeChanges);
+  addFirstBucketWins(repo.state.untrackedChanges);
+
+  const folderRollupByPath = new Map<string, GitChange>();
+  const rootFs = repo.rootUri.fsPath;
+  const buckets: readonly (readonly GitChange[])[] = [
+    repo.state.mergeChanges,
+    repo.state.indexChanges,
+    repo.state.workingTreeChanges,
+    repo.state.untrackedChanges,
+  ];
+  for (const changes of buckets) {
+    for (const c of changes) {
+      const pr = gitStatusPriority(c.status);
+      const pNorm = path.normalize(c.uri.fsPath);
+      forEachAncestorPathToRoot(pNorm, rootFs, (ancestorNorm) => {
+        const prev = folderRollupByPath.get(ancestorNorm);
+        if (!prev || pr > gitStatusPriority(prev.status)) {
+          folderRollupByPath.set(ancestorNorm, c);
+        }
+      });
+    }
+  }
+
+  return { fileByPath, folderRollupByPath };
+}
+
+/**
+ * Subscribes to the built-in Git extension and exposes {@link getModelForFile} + {@link onDidChange}.
+ * Maintains a {@link RepoGitIndex} per open repository so lookups stay O(1) instead of scanning SCM lists.
+ */
+export class GitFileStatusService implements vscode.Disposable {
+  private readonly _emitter = new vscode.EventEmitter<void>();
+  /** Fires after debounce when any tracked repository’s SCM state may have changed. */
+  readonly onDidChange = this._emitter.event;
+
+  private readonly _disposables: vscode.Disposable[] = [];
+  private readonly _repoSubs = new Map<GitRepository, vscode.Disposable>();
+  /** Precomputed {@link RepoGitIndex} per repository reference; cleared when the repository closes. */
+  private readonly _repoIndex = new Map<GitRepository, RepoGitIndex>();
+  private _api: GitAPI | undefined;
+  private _wiredApi = false;
+  private _bumpTimer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor() {
+    void this._tryInit();
+  }
+
+  dispose(): void {
+    if (this._bumpTimer !== undefined) {
+      clearTimeout(this._bumpTimer);
+      this._bumpTimer = undefined;
+    }
+    for (const d of this._disposables) {
+      d.dispose();
+    }
+    this._disposables.length = 0;
+    for (const d of this._repoSubs.values()) {
+      d.dispose();
+    }
+    this._repoSubs.clear();
+    this._repoIndex.clear();
+    this._emitter.dispose();
+  }
+
+  /**
+   * Whether current SCM state could change Git badges for the folder `folderUri` (listed files or subfolders).
+   * When no changed paths exist in any repo, returns `true` so the UI can clear badges.
+   */
+  gitChangesMayAffectFolder(folderUri: vscode.Uri): boolean {
+    if (folderUri.scheme !== "file" || !this._api || this._api.state !== "initialized") {
+      return true;
+    }
+    const F = path.normalize(folderUri.fsPath);
+    const sep = path.sep;
+    let sawAnyPath = false;
+    for (const repo of this._api.repositories) {
+      let idx = this._repoIndex.get(repo);
+      if (!idx) {
+        idx = buildRepoGitIndex(repo);
+        this._repoIndex.set(repo, idx);
+      }
+      for (const pRaw of idx.fileByPath.keys()) {
+        sawAnyPath = true;
+        const dir = path.dirname(path.normalize(pRaw));
+        if (pathsEqualFile(dir, F) || pathsEqualFile(pRaw, F)) {
+          return true;
+        }
+        const pNorm = path.normalize(pRaw);
+        const fNorm = path.normalize(F);
+        if (process.platform === "win32") {
+          const pl = pNorm.toLowerCase();
+          const fl = fNorm.toLowerCase();
+          if (pl.startsWith(fl + sep)) {
+            return true;
+          }
+        } else if (pNorm.startsWith(fNorm + sep)) {
+          return true;
+        }
+      }
+    }
+    if (!sawAnyPath) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Returns a badge for a file or folder `fileUri` if it is under a Git repo and SCM reports a non-clean status
+   * (aligned with Explorer). Folders use roll-up when there is no direct path entry. Returns `undefined` if Git is
+   * unavailable, the path is outside a repo, or the status is not mapped.
+   */
+  getModelForFile(fileUri: vscode.Uri, entryKind?: "file" | "folder"): FileGitStatusModel | undefined {
+    if (fileUri.scheme !== "file" || !this._api || this._api.state !== "initialized") {
+      return undefined;
+    }
+    const repo = this._api.getRepository(fileUri);
+    if (!repo) {
+      return undefined;
+    }
+    let idx = this._repoIndex.get(repo);
+    if (!idx) {
+      idx = buildRepoGitIndex(repo);
+      this._repoIndex.set(repo, idx);
+    }
+    const norm = path.normalize(fileUri.fsPath);
+    const direct = idx.fileByPath.get(norm);
+    if (direct) {
+      return gitStatusToModel(direct.status);
+    }
+    const isDirectory = entryKind === "folder";
+    if (!isDirectory) {
+      return undefined;
+    }
+    const rolled = idx.folderRollupByPath.get(norm);
+    return rolled ? gitStatusToModel(rolled.status) : undefined;
+  }
+
+  private _bump(): void {
+    if (this._bumpTimer !== undefined) {
+      clearTimeout(this._bumpTimer);
+    }
+    this._bumpTimer = setTimeout(() => {
+      this._bumpTimer = undefined;
+      this._emitter.fire();
+    }, GIT_BUMP_DEBOUNCE_MS);
+  }
+
+  private _hookRepository(repo: GitRepository): void {
+    if (this._repoSubs.has(repo)) {
+      return;
+    }
+    this._repoIndex.set(repo, buildRepoGitIndex(repo));
+    const sub = repo.state.onDidChange(() => {
+      this._repoIndex.set(repo, buildRepoGitIndex(repo));
+      this._bump();
+    });
+    this._repoSubs.set(repo, sub);
+  }
+
+  private _unhookRepository(repo: GitRepository): void {
+    const sub = this._repoSubs.get(repo);
+    if (sub) {
+      sub.dispose();
+      this._repoSubs.delete(repo);
+    }
+    this._repoIndex.delete(repo);
+  }
+
+  private _wireApi(api: GitAPI): void {
+    if (this._wiredApi) {
+      return;
+    }
+    this._wiredApi = true;
+    this._api = api;
+    for (const r of api.repositories) {
+      this._hookRepository(r);
+    }
+    this._disposables.push(
+      api.onDidOpenRepository((repo) => {
+        this._hookRepository(repo);
+        this._bump();
+      }),
+      api.onDidCloseRepository((repo) => {
+        this._unhookRepository(repo);
+        this._bump();
+      })
+    );
+  }
+
+  private async _tryInit(): Promise<void> {
+    const ext = vscode.extensions.getExtension<GitExtensionExports>("vscode.git");
+    if (!ext) {
+      return;
+    }
+    try {
+      if (!ext.isActive) {
+        await ext.activate();
+      }
+      const api = ext.exports.getAPI(1);
+      const attach = (): void => {
+        if (api.state !== "initialized") {
+          return;
+        }
+        this._wireApi(api);
+        this._bump();
+      };
+      if (api.state === "initialized") {
+        attach();
+      } else {
+        this._disposables.push(
+          api.onDidChangeState(() => {
+            if (api.state === "initialized") {
+              attach();
+            }
+          })
+        );
+      }
+    } catch {
+      /* Git disabled or API failure */
+    }
+  }
+}
