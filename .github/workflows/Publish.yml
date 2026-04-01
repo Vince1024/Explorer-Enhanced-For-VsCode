@@ -2,6 +2,7 @@
 # Required repository secrets:
 #   VSCE_TOKEN — Azure DevOps PAT with Marketplace > Manage (see https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
 #   OPENVSX_TOKEN — Personal access token from https://open-vsx.org/user-settings/tokens (claim namespace once: https://github.com/eclipse/openvsx/wiki/Namespace-Access)
+#   Do not pass the token with ovsx's -t: that flag is --target (CPU arch), not auth. Use OVSX_PAT env or ovsx -p / --pat.
 # Tag/release uses the workflow GITHUB_TOKEN (needs contents: write). If your org blocks that, add a PAT as secret PAT_TOKEN and set GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }} on the Tag and release step.
 
 name: Deploy Extension
@@ -67,8 +68,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
 
       # Même VSIX que ci-dessus — Cursor / VSCodium lisent surtout Open VSX.
+      # Auth: OVSX_PAT (lu par ovsx). Ne pas utiliser -t ici : c’est --target (architectures), pas le PAT.
       - name: Publish to Open VSX Registry
-        run: npx ovsx publish "explorer-enhanced-${VERSION}.vsix" -p "${OPENVSX_TOKEN}"
+        run: npx ovsx publish "explorer-enhanced-${VERSION}.vsix"
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          OPENVSX_TOKEN: ${{ secrets.OPENVSX_TOKEN }}
+          OVSX_PAT: ${{ secrets.OPENVSX_TOKEN }}
