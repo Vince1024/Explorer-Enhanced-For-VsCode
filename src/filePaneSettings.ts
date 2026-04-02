@@ -81,6 +81,14 @@ export type ViewLayoutSetting = (typeof VIEW_LAYOUT_VALUES)[number];
 
 export const DEFAULT_DATE_TIME_CUSTOM_PATTERN = "DD-MM-YYYY HH:mm:ss";
 
+/**
+ * Fallback storage for the custom pattern.
+ * We primarily read from Settings UI (`explorer-enhanced.files.dateTimeCustomPattern`), but some users run with
+ * transient/ephemeral profiles where settings can be reset (e.g. after restart). Persist last non-default value per
+ * workspace to avoid “my pattern resets every morning”.
+ */
+const WORKSPACE_DATE_TIME_CUSTOM_PATTERN_KEY = "explorer-enhanced.workspace.dateTimeCustomPattern";
+
 export interface FilesSettingsSnapshot {
   showGitStatus: boolean;
   showProblemsInFiles: boolean;
@@ -98,6 +106,7 @@ export interface FilesSettingsSnapshot {
 
 /** Single `primary` + `legacy` pass to avoid four configuration resolutions per snapshot. */
 function readDateTimeFileSettings(
+  workspaceState: vscode.Memento,
   primary: vscode.WorkspaceConfiguration,
   legacy: vscode.WorkspaceConfiguration
 ): Pick<FilesSettingsSnapshot, "dateTimeFormat" | "dateTimeCustomPattern"> {
@@ -121,23 +130,38 @@ function readDateTimeFileSettings(
         ? fromLegacy
         : undefined;
   const s = typeof raw === "string" ? raw.trim() : "";
-  const coalesced = !s ? DEFAULT_DATE_TIME_CUSTOM_PATTERN : s.length > 120 ? s.slice(0, 120) : s;
+  const capped = !s ? "" : s.length > 120 ? s.slice(0, 120) : s;
+
+  // If Settings are present and not the default, remember them in workspace state.
+  if (capped && capped !== DEFAULT_DATE_TIME_CUSTOM_PATTERN) {
+    void workspaceState.update(WORKSPACE_DATE_TIME_CUSTOM_PATTERN_KEY, capped);
+  }
+
+  // If settings are missing/empty (or were reset to default), fall back to last known workspace value.
+  const fallback = workspaceState.get<string | undefined>(WORKSPACE_DATE_TIME_CUSTOM_PATTERN_KEY);
+  const coalesced = capped ? capped : fallback && fallback.trim() ? fallback.trim() : DEFAULT_DATE_TIME_CUSTOM_PATTERN;
   return { dateTimeFormat, dateTimeCustomPattern: coalesced };
 }
 
 export function getDateTimeFormatSetting(): DateTimeFormatSetting {
-  return readDateTimeFileSettings(
-    getEnhanceExplorerConfiguration(),
-    getLegacyFileViewsConfiguration()
-  ).dateTimeFormat;
+  const noopMemento: vscode.Memento = {
+    get: () => undefined,
+    update: () => Promise.resolve(),
+    keys: () => [],
+  };
+  return readDateTimeFileSettings(noopMemento, getEnhanceExplorerConfiguration(), getLegacyFileViewsConfiguration())
+    .dateTimeFormat;
 }
 
 /** Pattern for `custom` date format; trimmed, non-empty, capped for safety. */
 export function getDateTimeCustomPattern(): string {
-  return readDateTimeFileSettings(
-    getEnhanceExplorerConfiguration(),
-    getLegacyFileViewsConfiguration()
-  ).dateTimeCustomPattern;
+  const noopMemento: vscode.Memento = {
+    get: () => undefined,
+    update: () => Promise.resolve(),
+    keys: () => [],
+  };
+  return readDateTimeFileSettings(noopMemento, getEnhanceExplorerConfiguration(), getLegacyFileViewsConfiguration())
+    .dateTimeCustomPattern;
 }
 
 /** Git-style default ON unless explicitly `false`; toggles use strict booleans in memento. */
@@ -357,7 +381,11 @@ export function getFilesSettingsSnapshot(
   const primaryCfg = configs?.primary ?? getEnhanceExplorerConfiguration();
   const legacyCfg = configs?.legacy ?? getLegacyFileViewsConfiguration();
   const pair: EnhanceExplorerSettingsConfigs = configs ?? { primary: primaryCfg, legacy: legacyCfg };
-  const { dateTimeFormat, dateTimeCustomPattern } = readDateTimeFileSettings(primaryCfg, legacyCfg);
+  const { dateTimeFormat, dateTimeCustomPattern } = readDateTimeFileSettings(
+    workspaceState,
+    primaryCfg,
+    legacyCfg
+  );
 
   const showGitStatus = getShowGitInFilesFromWorkspaceState(workspaceState, pair);
   const showProblemsInFiles = getShowProblemsInFilesFromWorkspaceState(workspaceState);
