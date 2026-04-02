@@ -213,6 +213,8 @@ interface RepoGitIndex {
   readonly indexByPath: ReadonlyMap<string, GitChange>;
   readonly workingByPath: ReadonlyMap<string, GitChange>;
   readonly untrackedByPath: ReadonlyMap<string, GitChange>;
+  /** Deduplicated normalized file paths with any SCM decoration (avoids rebuilding a Set on each folder check). */
+  readonly changedFileKeys: ReadonlySet<string>;
   /** Per directory path: best change among all repo changes at or below that path (Explorer-style folder roll-up). */
   readonly folderRollupByPath: ReadonlyMap<string, GitChange>;
 }
@@ -258,7 +260,14 @@ function buildRepoGitIndex(repo: GitRepository): RepoGitIndex {
     }
   }
 
-  return { mergeByPath, indexByPath, workingByPath, untrackedByPath, folderRollupByPath };
+  const changedFileKeys = new Set<string>([
+    ...mergeByPath.keys(),
+    ...indexByPath.keys(),
+    ...workingByPath.keys(),
+    ...untrackedByPath.keys(),
+  ]);
+
+  return { mergeByPath, indexByPath, workingByPath, untrackedByPath, changedFileKeys, folderRollupByPath };
 }
 
 /**
@@ -317,19 +326,10 @@ export class GitFileStatusService implements vscode.Disposable {
         this._repoIndex.set(repo, idx);
       }
       // Any file-level decoration under this folder could change the visible badges.
-      const allKeys = new Set<string>([
-        ...idx.mergeByPath.keys(),
-        ...idx.indexByPath.keys(),
-        ...idx.workingByPath.keys(),
-        ...idx.untrackedByPath.keys(),
-      ]);
-      for (const pRaw of allKeys) {
+      for (const pKey of idx.changedFileKeys) {
         sawAnyPath = true;
-        const dir = gitPathLookupKey(path.dirname(pRaw));
-        if (dir === F || pRaw === F) {
-          return true;
-        }
-        if (pRaw.startsWith(F + sep)) {
+        const dirKey = gitPathLookupKey(path.dirname(pKey));
+        if (pKey === F || dirKey === F || pKey.startsWith(F + sep)) {
           return true;
         }
       }
