@@ -438,6 +438,9 @@ td.status-cell {
   line-height: 1;
   user-select: none;
 }
+.status-cell-git .git-letter + .git-letter {
+  margin-left: 4px;
+}
 .git-letter--modified { color: var(--vscode-gitDecoration-modifiedResourceForeground, var(--vscode-foreground)); }
 .git-letter--added { color: var(--vscode-gitDecoration-addedResourceForeground, var(--vscode-foreground)); }
 .git-letter--deleted { color: var(--vscode-gitDecoration-deletedResourceForeground, var(--vscode-foreground)); }

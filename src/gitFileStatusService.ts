@@ -21,6 +21,13 @@ export interface FileGitStatusModel {
   readonly kind: FileGitStatusKind;
 }
 
+export interface FileGitStatusPairModel {
+  /** Working tree / merge (file-level) status (Explorer left badge). */
+  readonly primary: FileGitStatusModel;
+  /** Index (staged) status (Explorer right badge). */
+  readonly secondary?: FileGitStatusModel;
+}
+
 /** Serializable file row for file-list webviews (shared contract for Files and future views). */
 export interface FileViewRowPayload {
   name: string;
@@ -31,7 +38,11 @@ export interface FileViewRowPayload {
   kind?: "file" | "folder";
   /** Folder size is still being computed (Display folder size option). */
   folderSizePending?: boolean;
-  git?: { letter: string; kind: FileGitStatusKind };
+  /**
+   * Git decorations for this row.
+   * Files can have both working-tree and index decorations; folders use roll-up (single badge) to avoid clutter.
+   */
+  git?: { primary: { letter: string; kind: FileGitStatusKind }; secondary?: { letter: string; kind: FileGitStatusKind } };
   /** From {@link vscode.languages.getDiagnostics} when Problems column is enabled (files only). */
   problems?: { errors: number; warnings: number; infos: number };
 }
@@ -195,27 +206,34 @@ function forEachAncestorPathToRoot(startFs: string, rootFs: string, onSegment: (
 }
 
 interface RepoGitIndex {
-  /** Direct path lookup: first SCM bucket wins (merge → index → working tree → untracked), matching Explorer file rows. */
-  readonly fileByPath: ReadonlyMap<string, GitChange>;
+  /** Per-path SCM buckets for file-level decorations (Explorer shows working + index). */
+  readonly mergeByPath: ReadonlyMap<string, GitChange>;
+  readonly indexByPath: ReadonlyMap<string, GitChange>;
+  readonly workingByPath: ReadonlyMap<string, GitChange>;
+  readonly untrackedByPath: ReadonlyMap<string, GitChange>;
   /** Per directory path: best change among all repo changes at or below that path (Explorer-style folder roll-up). */
   readonly folderRollupByPath: ReadonlyMap<string, GitChange>;
 }
 
 /** Snapshot of Git SCM lists into maps; rebuilt whenever that repository’s state changes. */
 function buildRepoGitIndex(repo: GitRepository): RepoGitIndex {
-  const fileByPath = new Map<string, GitChange>();
-  const addFirstBucketWins = (changes: readonly GitChange[]): void => {
+  const mergeByPath = new Map<string, GitChange>();
+  const indexByPath = new Map<string, GitChange>();
+  const workingByPath = new Map<string, GitChange>();
+  const untrackedByPath = new Map<string, GitChange>();
+  const addTo = (m: Map<string, GitChange>, changes: readonly GitChange[]): void => {
     for (const c of changes) {
       const k = path.normalize(c.uri.fsPath);
-      if (!fileByPath.has(k)) {
-        fileByPath.set(k, c);
+      // Keep the first entry for that path (stable if Git extension emits duplicates).
+      if (!m.has(k)) {
+        m.set(k, c);
       }
     }
   };
-  addFirstBucketWins(repo.state.mergeChanges);
-  addFirstBucketWins(repo.state.indexChanges);
-  addFirstBucketWins(repo.state.workingTreeChanges);
-  addFirstBucketWins(repo.state.untrackedChanges);
+  addTo(mergeByPath, repo.state.mergeChanges);
+  addTo(indexByPath, repo.state.indexChanges);
+  addTo(workingByPath, repo.state.workingTreeChanges);
+  addTo(untrackedByPath, repo.state.untrackedChanges);
 
   const folderRollupByPath = new Map<string, GitChange>();
   const rootFs = repo.rootUri.fsPath;
@@ -238,7 +256,7 @@ function buildRepoGitIndex(repo: GitRepository): RepoGitIndex {
     }
   }
 
-  return { fileByPath, folderRollupByPath };
+  return { mergeByPath, indexByPath, workingByPath, untrackedByPath, folderRollupByPath };
 }
 
 /**
@@ -296,7 +314,14 @@ export class GitFileStatusService implements vscode.Disposable {
         idx = buildRepoGitIndex(repo);
         this._repoIndex.set(repo, idx);
       }
-      for (const pRaw of idx.fileByPath.keys()) {
+      // Any file-level decoration under this folder could change the visible badges.
+      const allKeys = new Set<string>([
+        ...idx.mergeByPath.keys(),
+        ...idx.indexByPath.keys(),
+        ...idx.workingByPath.keys(),
+        ...idx.untrackedByPath.keys(),
+      ]);
+      for (const pRaw of allKeys) {
         sawAnyPath = true;
         const dir = path.dirname(path.normalize(pRaw));
         if (pathsEqualFile(dir, F) || pathsEqualFile(pRaw, F)) {
@@ -326,7 +351,7 @@ export class GitFileStatusService implements vscode.Disposable {
    * (aligned with Explorer). Folders use roll-up when there is no direct path entry. Returns `undefined` if Git is
    * unavailable, the path is outside a repo, or the status is not mapped.
    */
-  getModelForFile(fileUri: vscode.Uri, entryKind?: "file" | "folder"): FileGitStatusModel | undefined {
+  getModelForFile(fileUri: vscode.Uri, entryKind?: "file" | "folder"): FileGitStatusModel | FileGitStatusPairModel | undefined {
     if (fileUri.scheme !== "file" || !this._api || this._api.state !== "initialized") {
       return undefined;
     }
@@ -340,16 +365,33 @@ export class GitFileStatusService implements vscode.Disposable {
       this._repoIndex.set(repo, idx);
     }
     const norm = path.normalize(fileUri.fsPath);
-    const direct = idx.fileByPath.get(norm);
-    if (direct) {
-      return gitStatusToModel(direct.status);
-    }
     const isDirectory = entryKind === "folder";
-    if (!isDirectory) {
-      return undefined;
+    if (isDirectory) {
+      const rolled = idx.folderRollupByPath.get(norm);
+      return rolled ? gitStatusToModel(rolled.status) : undefined;
     }
-    const rolled = idx.folderRollupByPath.get(norm);
-    return rolled ? gitStatusToModel(rolled.status) : undefined;
+
+    // File-level: match Explorer behavior — merge/conflict dominates, then working tree, then staged/index.
+    const merge = idx.mergeByPath.get(norm);
+    if (merge) {
+      const m = gitStatusToModel(merge.status);
+      return m ? { primary: m } : undefined;
+    }
+    const work = idx.workingByPath.get(norm) ?? idx.untrackedByPath.get(norm);
+    const staged = idx.indexByPath.get(norm);
+    const workModel = work ? gitStatusToModel(work.status) : undefined;
+    const stagedModel = staged ? gitStatusToModel(staged.status) : undefined;
+
+    if (workModel && stagedModel) {
+      return { primary: workModel, secondary: stagedModel };
+    }
+    if (workModel) {
+      return workModel;
+    }
+    if (stagedModel) {
+      return stagedModel;
+    }
+    return undefined;
   }
 
   private _bump(): void {

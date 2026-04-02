@@ -241,21 +241,28 @@
 
       const gitWrap = document.createElement('span');
       gitWrap.className = 'status-cell-git';
-      if (showGit && r.git && r.git.letter) {
-        const k = r.git.kind || 'none';
-        if (r.kind === 'folder') {
-          const dot = document.createElement('span');
-          dot.className = 'git-dot git-dot--' + k;
-          dot.setAttribute('role', 'img');
-          dot.setAttribute('aria-label', k);
-          dot.title = k;
-          gitWrap.appendChild(dot);
-        } else {
-          const span = document.createElement('span');
-          span.className = 'git-letter git-letter--' + k;
-          span.textContent = r.git.letter;
-          span.title = k;
-          gitWrap.appendChild(span);
+      if (showGit && r.git && r.git.primary && r.git.primary.letter) {
+        const isFolder = r.kind === 'folder';
+        const addBadge = (badge) => {
+          const k = badge.kind || 'none';
+          if (isFolder) {
+            const dot = document.createElement('span');
+            dot.className = 'git-dot git-dot--' + k;
+            dot.setAttribute('role', 'img');
+            dot.setAttribute('aria-label', k);
+            dot.title = k;
+            gitWrap.appendChild(dot);
+          } else {
+            const span = document.createElement('span');
+            span.className = 'git-letter git-letter--' + k;
+            span.textContent = badge.letter;
+            span.title = k;
+            gitWrap.appendChild(span);
+          }
+        };
+        addBadge(r.git.primary);
+        if (!isFolder && r.git.secondary && r.git.secondary.letter) {
+          addBadge(r.git.secondary);
         }
       }
 

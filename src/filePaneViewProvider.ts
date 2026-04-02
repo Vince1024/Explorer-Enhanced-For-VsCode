@@ -567,7 +567,17 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     if (showGitColumn) {
       const g = this._gitFileStatus.getModelForFile(entryUri, entryKind);
       if (g) {
-        row = { ...row, git: { letter: g.letter, kind: g.kind } };
+        if ("primary" in g) {
+          row = {
+            ...row,
+            git: {
+              primary: { letter: g.primary.letter, kind: g.primary.kind },
+              ...(g.secondary ? { secondary: { letter: g.secondary.letter, kind: g.secondary.kind } } : {}),
+            },
+          };
+        } else {
+          row = { ...row, git: { primary: { letter: g.letter, kind: g.kind } } };
+        }
       }
     }
     if (showProblemsColumn && entryKind === "file" && problemsByPath) {

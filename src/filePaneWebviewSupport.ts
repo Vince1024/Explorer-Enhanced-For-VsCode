@@ -207,9 +207,15 @@ export function statePayloadSignature(p: {
     u(pend);
     u("\t");
     if (r.git) {
-      u(r.git.letter);
+      u(r.git.primary.letter);
       u(":");
-      u(r.git.kind);
+      u(r.git.primary.kind);
+      if (r.git.secondary) {
+        u(",");
+        u(r.git.secondary.letter);
+        u(":");
+        u(r.git.secondary.kind);
+      }
     }
     u("\t");
     if (r.problems) {
