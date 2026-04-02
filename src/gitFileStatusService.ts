@@ -141,13 +141,15 @@ interface GitExtensionExports {
 /** Coalesce bursty git state signals into one UI refresh. */
 const GIT_BUMP_DEBOUNCE_MS = 90;
 
-function pathsEqualFile(aFs: string, bFs: string): boolean {
-  const na = path.normalize(aFs);
-  const nb = path.normalize(bFs);
-  if (process.platform === "win32") {
-    return na.toLowerCase() === nb.toLowerCase();
-  }
-  return na === nb;
+/**
+ * Canonical key for matching Git SCM paths to `Uri.fsPath` from the workspace.
+ * Multi-root / Cursor sometimes surfaces `%20` in `fsPath` while `vscode.git` uses decoded spaces — strict
+ * `path.normalize` alone makes Map lookups miss (one file shows M in native Explorer, none in Files).
+ */
+function gitPathLookupKey(fsPath: string): string {
+  const decoded = fsPath.replace(/%20/gi, " ");
+  const n = path.normalize(decoded);
+  return process.platform === "win32" ? n.toLowerCase() : n;
 }
 
 /** Priority for folder roll-up: when several changes apply under one folder, the highest value wins. */
@@ -190,15 +192,15 @@ function gitStatusPriority(status: number): number {
  * Used to propagate folder roll-up to every ancestor of a changed path.
  */
 function forEachAncestorPathToRoot(startFs: string, rootFs: string, onSegment: (segmentNorm: string) => void): void {
-  const rootNorm = path.normalize(rootFs);
-  let cur = path.normalize(startFs);
+  const rootNorm = gitPathLookupKey(rootFs);
+  let cur = gitPathLookupKey(startFs);
   while (true) {
     onSegment(cur);
-    if (pathsEqualFile(cur, rootNorm)) {
+    if (cur === rootNorm) {
       break;
     }
-    const parent = path.dirname(cur);
-    if (pathsEqualFile(parent, cur)) {
+    const parent = gitPathLookupKey(path.dirname(cur));
+    if (parent === cur) {
       break;
     }
     cur = parent;
@@ -223,7 +225,7 @@ function buildRepoGitIndex(repo: GitRepository): RepoGitIndex {
   const untrackedByPath = new Map<string, GitChange>();
   const addTo = (m: Map<string, GitChange>, changes: readonly GitChange[]): void => {
     for (const c of changes) {
-      const k = path.normalize(c.uri.fsPath);
+      const k = gitPathLookupKey(c.uri.fsPath);
       // Keep the first entry for that path (stable if Git extension emits duplicates).
       if (!m.has(k)) {
         m.set(k, c);
@@ -246,7 +248,7 @@ function buildRepoGitIndex(repo: GitRepository): RepoGitIndex {
   for (const changes of buckets) {
     for (const c of changes) {
       const pr = gitStatusPriority(c.status);
-      const pNorm = path.normalize(c.uri.fsPath);
+      const pNorm = gitPathLookupKey(c.uri.fsPath);
       forEachAncestorPathToRoot(pNorm, rootFs, (ancestorNorm) => {
         const prev = folderRollupByPath.get(ancestorNorm);
         if (!prev || pr > gitStatusPriority(prev.status)) {
@@ -305,7 +307,7 @@ export class GitFileStatusService implements vscode.Disposable {
     if (folderUri.scheme !== "file" || !this._api || this._api.state !== "initialized") {
       return true;
     }
-    const F = path.normalize(folderUri.fsPath);
+    const F = gitPathLookupKey(folderUri.fsPath);
     const sep = path.sep;
     let sawAnyPath = false;
     for (const repo of this._api.repositories) {
@@ -323,19 +325,11 @@ export class GitFileStatusService implements vscode.Disposable {
       ]);
       for (const pRaw of allKeys) {
         sawAnyPath = true;
-        const dir = path.dirname(path.normalize(pRaw));
-        if (pathsEqualFile(dir, F) || pathsEqualFile(pRaw, F)) {
+        const dir = gitPathLookupKey(path.dirname(pRaw));
+        if (dir === F || pRaw === F) {
           return true;
         }
-        const pNorm = path.normalize(pRaw);
-        const fNorm = path.normalize(F);
-        if (process.platform === "win32") {
-          const pl = pNorm.toLowerCase();
-          const fl = fNorm.toLowerCase();
-          if (pl.startsWith(fl + sep)) {
-            return true;
-          }
-        } else if (pNorm.startsWith(fNorm + sep)) {
+        if (pRaw.startsWith(F + sep)) {
           return true;
         }
       }
@@ -364,7 +358,7 @@ export class GitFileStatusService implements vscode.Disposable {
       idx = buildRepoGitIndex(repo);
       this._repoIndex.set(repo, idx);
     }
-    const norm = path.normalize(fileUri.fsPath);
+    const norm = gitPathLookupKey(fileUri.fsPath);
     const isDirectory = entryKind === "folder";
     if (isDirectory) {
       const rolled = idx.folderRollupByPath.get(norm);
