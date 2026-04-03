@@ -248,6 +248,8 @@ th { user-select: none; font-weight: 600; }
 /* Status : pas de line-height sur la td elle-même (voir .status-cell + .status-cell-inner). */
 #grid tbody tr[data-path] > td.status-cell {
   line-height: 0;
+  /* Default td overflow:hidden clips the left part of multi-badge git (incoming before local M) in narrow cols. */
+  overflow: visible;
 }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 td.name-cell { overflow: hidden; }
@@ -450,6 +452,28 @@ td.status-cell {
 .git-letter--ignored { color: var(--vscode-gitDecoration-ignoredResourceForeground, var(--vscode-descriptionForeground)); }
 .git-letter--conflict { color: var(--vscode-gitDecoration-conflictingResourceForeground, var(--vscode-errorForeground)); }
 .git-letter--none { color: var(--vscode-descriptionForeground); }
+/* Explorer-style incoming: single span "↓M" (avoids missing glyph / clipping on split nodes). */
+.git-incoming-pair {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+  color: var(--vscode-gitDecoration-incomingResourceForeground, var(--vscode-charts-green, #389738));
+}
+.status-cell-git .git-incoming-pair {
+  font-size: 0.92em;
+}
+.status-cell-git .git-incoming-pair + .git-letter {
+  margin-left: 4px;
+}
+.files-icon-tile-badges .git-incoming-pair {
+  font-size: 12px;
+}
+.files-icon-tile-badges .git-incoming-pair + .git-letter {
+  margin-left: 3px;
+}
 tr.editor-active .git-letter { color: var(--vscode-list-activeSelectionForeground); }
 /* Folder rows: Explorer-style status dot (Folders tree), not a letter. */
 .git-dot {
@@ -489,6 +513,11 @@ tr.editor-active .git-dot { background-color: var(--vscode-list-activeSelectionF
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+/* Avoid gap between digit and "," (was read as "3 ,M"): min-width + centered digit leaves empty box on the right. */
+.status-cell-inner .status-cell-prob > .prob-badge {
+  min-width: 0;
+  justify-content: flex-end;
 }
 .prob-badge--error { color: var(--vscode-errorForeground, var(--vscode-foreground)); }
 .prob-badge--warning { color: var(--vscode-list-warningForeground, var(--vscode-editorWarning-foreground, var(--vscode-foreground))); }

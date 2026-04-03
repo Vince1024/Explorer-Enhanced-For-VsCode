@@ -45,6 +45,7 @@ export const FILE_PANE_WEBVIEW_JS_ICON_GRID = "filePane.iconGrid.js";
 export const FILE_PANE_WEBVIEW_JS_COLUMNS = "filePane.columns.js";
 export const FILE_PANE_WEBVIEW_JS_MENUS = "filePane.menus.js";
 export const FILE_PANE_WEBVIEW_JS_FORMAT = "filePane.format.js";
+export const FILE_PANE_WEBVIEW_JS_GIT_BADGES = "filePane.gitBadges.js";
 export const FILE_PANE_WEBVIEW_JS_TABLE = "filePane.table.js";
 export const FILE_PANE_WEBVIEW_SHELL = "filePane.shell.html";
 
@@ -215,6 +216,12 @@ export function statePayloadSignature(p: {
         u(r.git.secondary.letter);
         u(":");
         u(r.git.secondary.kind);
+      }
+      if (r.git.incoming) {
+        u(",in,");
+        u(r.git.incoming.letter);
+        u(":");
+        u(r.git.incoming.kind);
       }
     }
     u("\t");

@@ -35,7 +35,7 @@ import {
   normalizeProblemsPath,
   type FileProblemsCount,
 } from "./filePaneDiagnostics";
-import type { FileViewRowPayload, GitFileStatusService } from "./gitFileStatusService";
+import { gitIncomingToRowPayload, type FileViewRowPayload, type GitFileStatusService } from "./gitFileStatusService";
 import {
   buildFilePaneWebviewCsp,
   DEFAULT_COL_FRACS,
@@ -48,6 +48,7 @@ import {
   FILE_PANE_WEBVIEW_JS,
   FILE_PANE_WEBVIEW_JS_COLUMNS,
   FILE_PANE_WEBVIEW_JS_FORMAT,
+  FILE_PANE_WEBVIEW_JS_GIT_BADGES,
   FILE_PANE_WEBVIEW_JS_ICON_GRID,
   FILE_PANE_WEBVIEW_JS_ICONS,
   FILE_PANE_WEBVIEW_JS_MENUS,
@@ -80,8 +81,9 @@ const DIAGNOSTICS_DEBOUNCE_MS = 80;
 /**
  * Webview listing files for the folder selected in Folders (table: Name, Modified, Size, optional combined Git/Problems column).
  * Icons are inline SVG; per-extension hex tints approximate Seti/Material-style hues.
- * Same-folder rescans are debounced; `readDirectory` is skipped when the folder and list options are unchanged
- * (Git-only or stat refresh). Refreshes when the view becomes visible again and on disk/Git signals.
+ * Same-folder rescans are debounced; `readDirectory` is skipped when the folder and list options are unchanged.
+ * Git-only updates can refresh SCM badges without `stat` or `readDirectory` when the listing + row cache is still valid.
+ * Refreshes when the view becomes visible again and on disk/Git signals.
  */
 export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = FILE_PANE_VIEW_TYPE;
@@ -102,6 +104,16 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   /** Last `state` postMessage signature; cleared when the webview is disposed. */
   private _lastPostedStateSignature: string | undefined;
 
+  /**
+   * `git`: last bump was Git-only — try badge refresh without `readDirectory` / `stat` if listing cache matches.
+   * Reset to `full` after handling or when FS / listing cache is invalidated.
+   */
+  private _refreshMode: "full" | "git" = "full";
+  /** Matches {@link filesListingCacheKey} after a successful full row build. */
+  private _rowCacheListingKey: string | undefined;
+  /** Last built rows (for Git-only decoration refresh). */
+  private _rowCachePayloads: FileViewRowPayload[] | undefined;
+
   /** Avoids re-reading `filePane.shell.html` on every `resolveWebviewView` (F5 reload clears this cache). */
   private _cachedWebviewShellPath: string | undefined;
   private _cachedWebviewShellTemplate: string | undefined;
@@ -118,6 +130,9 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   private _invalidateFilesListingCache(): void {
     this._filesListingCacheKey = undefined;
     this._filesListingCollected = undefined;
+    this._rowCacheListingKey = undefined;
+    this._rowCachePayloads = undefined;
+    this._refreshMode = "full";
   }
 
   /**
@@ -206,7 +221,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly _context: vscode.ExtensionContext,
     /** After rename/delete/new file from the Files webview, refresh Folders + file list. */
-    private readonly _onFsChange: () => void,
+    private readonly _onFsChange: (scope?: "both" | "filesOnly") => void,
     private readonly _gitFileStatus: GitFileStatusService,
     /** Double-click folder row: sync Folders selection and show that folder in Files. */
     private readonly _onNavigateToFolder: (uri: vscode.Uri) => Promise<void>,
@@ -288,6 +303,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         if (folder && !this._gitFileStatus.gitChangesMayAffectFolder(folder)) {
           return;
         }
+        this._refreshMode = "git";
         this._requestRefreshCurrentFolder();
       }),
       vscode.languages.onDidChangeDiagnostics(() => {
@@ -546,6 +562,40 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private _buildGitCellPayload(
+    entryUri: vscode.Uri,
+    entryKind: "file" | "folder",
+    showGitColumn: boolean
+  ): FileViewRowPayload["git"] | undefined {
+    if (!showGitColumn) {
+      return undefined;
+    }
+    const inc = entryKind === "file" ? this._gitFileStatus.getUpstreamIncomingModel(entryUri) : undefined;
+    const g = this._gitFileStatus.getModelForFile(entryUri, entryKind);
+    if (!g && !inc) {
+      return undefined;
+    }
+    const incomingPayload = inc ? gitIncomingToRowPayload(inc) : undefined;
+    if (g && "primary" in g) {
+      return {
+        primary: { letter: g.primary.letter, kind: g.primary.kind },
+        ...(g.secondary ? { secondary: { letter: g.secondary.letter, kind: g.secondary.kind } } : {}),
+        ...(incomingPayload ? { incoming: incomingPayload } : {}),
+      };
+    }
+    if (g) {
+      return {
+        primary: { letter: g.letter, kind: g.kind },
+        ...(incomingPayload ? { incoming: incomingPayload } : {}),
+      };
+    }
+    // Upstream incoming only (no local SCM row for this file).
+    if (!incomingPayload) {
+      return undefined;
+    }
+    return { primary: { letter: "", kind: "modified" }, incoming: incomingPayload };
+  }
+
   private _entryRowPayload(
     name: string,
     entryUri: vscode.Uri,
@@ -564,21 +614,9 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       ...(entryKind === "folder" ? { kind: "folder" as const } : {}),
     };
     let row: FileViewRowPayload = base;
-    if (showGitColumn) {
-      const g = this._gitFileStatus.getModelForFile(entryUri, entryKind);
-      if (g) {
-        if ("primary" in g) {
-          row = {
-            ...row,
-            git: {
-              primary: { letter: g.primary.letter, kind: g.primary.kind },
-              ...(g.secondary ? { secondary: { letter: g.secondary.letter, kind: g.secondary.kind } } : {}),
-            },
-          };
-        } else {
-          row = { ...row, git: { primary: { letter: g.letter, kind: g.kind } } };
-        }
-      }
+    const gitCell = this._buildGitCellPayload(entryUri, entryKind, showGitColumn);
+    if (gitCell) {
+      row = { ...row, git: gitCell };
     }
     if (showProblemsColumn && entryKind === "file" && problemsByPath) {
       const pc = problemsByPath.get(normalizeProblemsPath(entryUri.fsPath));
@@ -587,6 +625,20 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       }
     }
     return row;
+  }
+
+  /** Refresh Git decorations from cached rows only (no `stat` / `readDirectory`). */
+  private _rowWithFreshGit(row: FileViewRowPayload): FileViewRowPayload {
+    const entryUri = vscode.Uri.file(row.path);
+    const entryKind: "file" | "folder" = row.kind === "folder" ? "folder" : "file";
+    const base: FileViewRowPayload = { ...row };
+    delete base.git;
+    const showGit = getShowGitInFilesFromWorkspaceState(this._context.workspaceState);
+    const gitCell = this._buildGitCellPayload(entryUri, entryKind, showGit);
+    if (!gitCell) {
+      return base;
+    }
+    return { ...base, git: gitCell };
   }
 
   private _queueFolderSizeScan(
@@ -826,7 +878,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async _runCtxAction(action: string, uri: vscode.Uri): Promise<void> {
-    const bump = (): void => this._onFsChange();
+    const bump = (): void => this._onFsChange("both");
     switch (action) {
       case "open":
         await openFileInEditorFromWebview(uri, true);
@@ -947,6 +999,9 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    const incomingRefreshMode = this._refreshMode;
+    this._refreshMode = "full";
+
     const settingsConfigs = resolveEnhanceExplorerSettingsConfigs();
     const settings = getFilesSettingsSnapshot(this._context.workspaceState, settingsConfigs);
     const viewLayout = getViewLayoutForFilesPane(this._context.workspaceState, settingsConfigs);
@@ -958,6 +1013,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     const openEditorPathsResolved = settings.highlightOpenFiles ? collectOpenWorkspaceFilePaths() : [];
 
     if (!folderUri) {
+      this._rowCacheListingKey = undefined;
+      this._rowCachePayloads = undefined;
       const emptyPayload = this._buildStatePayload(
         "",
         [],
@@ -968,6 +1025,44 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       );
       this._postFilePaneStateIfChanged(view, emptyPayload, null);
       this._syncFolderWatcher(undefined);
+      this._postEditorSelectionToWebview();
+      return;
+    }
+
+    const listingKey = filesListingCacheKey(folderUri, showFoldersInList);
+
+    if (
+      incomingRefreshMode === "git" &&
+      showGitStatus &&
+      this._rowCacheListingKey === listingKey &&
+      this._filesListingCacheKey === listingKey &&
+      this._rowCachePayloads !== undefined
+    ) {
+      const newRows = this._rowCachePayloads.map((r) => this._rowWithFreshGit(r));
+      this._rowCachePayloads = newRows;
+      const filledPayload = this._buildStatePayload(
+        folderUri.fsPath,
+        newRows,
+        revealOsTitle,
+        settings,
+        viewLayout,
+        openEditorPathsResolved
+      );
+      let fileRowCount = 0;
+      let folderRowCount = 0;
+      for (const r of newRows) {
+        if (r.kind === "folder") {
+          folderRowCount++;
+        } else {
+          fileRowCount++;
+        }
+      }
+      this._postFilePaneStateIfChanged(view, filledPayload, {
+        fileCount: fileRowCount,
+        folderCount: folderRowCount,
+        showFoldersInList,
+      });
+      this._syncFolderWatcher(folderUri);
       this._postEditorSelectionToWebview();
       return;
     }
@@ -983,9 +1078,10 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       );
     } catch {
       rows = [];
+      this._rowCacheListingKey = undefined;
+      this._rowCachePayloads = undefined;
     }
 
-    const listingKey = filesListingCacheKey(folderUri, showFoldersInList);
     const filledPayload = this._buildStatePayload(
       folderUri.fsPath,
       rows,
@@ -1008,6 +1104,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       folderCount: folderRowCount,
       showFoldersInList,
     });
+    this._rowCacheListingKey = listingKey;
+    this._rowCachePayloads = rows;
     this._queueFolderSizeScan(folderUri, listingKey, rows, showFolderSize);
     this._syncFolderWatcher(folderUri);
     this._postEditorSelectionToWebview();
@@ -1128,6 +1226,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     const filePaneJsColumnsUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_COLUMNS);
     const filePaneJsMenusUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_MENUS);
     const filePaneJsFormatUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_FORMAT);
+    const filePaneJsGitBadgesUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_GIT_BADGES);
     const filePaneJsTableUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_TABLE);
     const filePaneJsIconGridUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_ICON_GRID);
     const filePaneJsUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS);
@@ -1186,6 +1285,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       URI_JS_COLUMNS: filePaneJsColumnsUri.toString(),
       URI_JS_MENUS: filePaneJsMenusUri.toString(),
       URI_JS_FORMAT: filePaneJsFormatUri.toString(),
+      URI_JS_GIT_BADGES: filePaneJsGitBadgesUri.toString(),
       URI_JS_TABLE: filePaneJsTableUri.toString(),
       URI_JS_ICON_GRID: filePaneJsIconGridUri.toString(),
       URI_JS: filePaneJsUri.toString(),

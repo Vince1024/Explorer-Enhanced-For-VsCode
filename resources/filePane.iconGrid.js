@@ -11,6 +11,11 @@
     throw new Error('explorer-enhanced: FilePaneFormat missing (load filePane.format.js before filePane.iconGrid.js)');
   }
 
+  const GitBadges = globalThis.FilePaneGitBadges;
+  if (!GitBadges || typeof GitBadges.incomingPairElement !== 'function') {
+    throw new Error('explorer-enhanced: FilePaneGitBadges missing (load filePane.gitBadges.js before filePane.iconGrid.js)');
+  }
+
   function fmtSizeBytes(n) {
     return Format.fmtSizeBytes(n);
   }
@@ -60,8 +65,41 @@
       badgeRow.className = 'files-icon-tile-badges';
       const pr = r.problems;
       const totalPb = showProb && pr ? probTotal(pr) : 0;
-      const hasGit = showGit && r.git && r.git.letter;
-      const k = hasGit ? r.git.kind || 'none' : 'none';
+      const g = showGit && r.git ? r.git : null;
+      const isFolderRow = r.kind === 'folder';
+      const hasGitLetters =
+        g &&
+        (GitBadges.rowHasLocalGitLetters(g, isFolderRow) ||
+          (!isFolderRow && g.incoming && g.incoming.letter));
+      const hasGit = !!hasGitLetters;
+
+      function appendGitTo(container) {
+        if (!g) return;
+        const isFolder = isFolderRow;
+        const addLetter = (badge) => {
+          if (!badge || !badge.letter) return;
+          const k = badge.kind || 'none';
+          if (isFolder) {
+            const dot = document.createElement('span');
+            dot.className = 'git-dot git-dot--' + k;
+            dot.setAttribute('role', 'img');
+            dot.setAttribute('aria-label', k);
+            dot.title = k;
+            container.appendChild(dot);
+          } else {
+            const span = document.createElement('span');
+            span.className = 'git-letter git-letter--' + k;
+            span.textContent = badge.letter;
+            span.title = k;
+            container.appendChild(span);
+          }
+        };
+        const incEl = !isFolder ? GitBadges.incomingPairElement(g.incoming) : null;
+        if (incEl) container.appendChild(incEl);
+        GitBadges.appendCommaBetweenIncomingAndLocal(container, g, isFolder);
+        addLetter(g.primary);
+        if (!isFolder && g.secondary) addLetter(g.secondary);
+      }
 
       if (totalPb > 0 && hasGit) {
         const combo = document.createElement('span');
@@ -71,21 +109,8 @@
         num.textContent = String(totalPb);
         num.title = totalPb + ' problem(s)';
         combo.appendChild(num);
-        combo.appendChild(document.createTextNode(', '));
-        if (r.kind === 'folder') {
-          const dot = document.createElement('span');
-          dot.className = 'git-dot git-dot--' + k;
-          dot.setAttribute('role', 'img');
-          dot.setAttribute('aria-label', k);
-          dot.title = k;
-          combo.appendChild(dot);
-        } else {
-          const span = document.createElement('span');
-          span.className = 'git-letter git-letter--' + k;
-          span.textContent = r.git.letter;
-          span.title = k;
-          combo.appendChild(span);
-        }
+        combo.appendChild(document.createTextNode(','));
+        appendGitTo(combo);
         badgeRow.appendChild(combo);
       } else if (totalPb > 0) {
         const wrap = document.createElement('span');
@@ -95,20 +120,7 @@
         appendProbBadge(wrap, pr.infos, 'info', pr.infos === 1 ? 'info / hint' : 'infos / hints');
         badgeRow.appendChild(wrap);
       } else if (hasGit) {
-        if (r.kind === 'folder') {
-          const dot = document.createElement('span');
-          dot.className = 'git-dot git-dot--' + k;
-          dot.setAttribute('role', 'img');
-          dot.setAttribute('aria-label', k);
-          dot.title = k;
-          badgeRow.appendChild(dot);
-        } else {
-          const span = document.createElement('span');
-          span.className = 'git-letter git-letter--' + k;
-          span.textContent = r.git.letter;
-          span.title = k;
-          badgeRow.appendChild(span);
-        }
+        appendGitTo(badgeRow);
       }
 
       const label = document.createElement('div');

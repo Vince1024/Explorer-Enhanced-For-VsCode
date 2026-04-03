@@ -13,6 +13,11 @@
     throw new Error('explorer-enhanced: FilePaneFormat missing (load filePane.format.js before filePane.table.js)');
   }
 
+  const GitBadges = globalThis.FilePaneGitBadges;
+  if (!GitBadges || typeof GitBadges.incomingPairElement !== 'function') {
+    throw new Error('explorer-enhanced: FilePaneGitBadges missing (load filePane.gitBadges.js before filePane.table.js)');
+  }
+
   const SORT_STATE_KEY = 'filePaneSort';
 
   const DATE_FORMATS = new Set(['locale', 'localeDate', 'localeTime', 'iso', 'relative', 'custom']);
@@ -241,10 +246,16 @@
 
       const gitWrap = document.createElement('span');
       gitWrap.className = 'status-cell-git';
-      if (showGit && r.git && r.git.primary && r.git.primary.letter) {
+      if (showGit && r.git) {
         const isFolder = r.kind === 'folder';
+        const addIncoming = (incoming) => {
+          if (isFolder) return;
+          const el = GitBadges.incomingPairElement(incoming);
+          if (el) gitWrap.appendChild(el);
+        };
         const addBadge = (badge) => {
           const k = badge.kind || 'none';
+          if (!badge.letter) return;
           if (isFolder) {
             const dot = document.createElement('span');
             dot.className = 'git-dot git-dot--' + k;
@@ -260,6 +271,9 @@
             gitWrap.appendChild(span);
           }
         };
+        // Same order as Explorer: incoming (↓M) before local index/working badges; comma between ↓M and local M.
+        addIncoming(r.git.incoming);
+        GitBadges.appendCommaBetweenIncomingAndLocal(gitWrap, r.git, isFolder);
         addBadge(r.git.primary);
         if (!isFolder && r.git.secondary && r.git.secondary.letter) {
           addBadge(r.git.secondary);
@@ -280,7 +294,7 @@
         probWrap.appendChild(num);
         const sep = document.createElement('span');
         sep.className = 'status-cell-sep';
-        sep.textContent = ', ';
+        sep.textContent = ',';
         sep.setAttribute('aria-hidden', 'true');
         statusInner.appendChild(probWrap);
         statusInner.appendChild(sep);

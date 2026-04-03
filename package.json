@@ -12,6 +12,9 @@
   "engines": {
     "vscode": "^1.85.0"
   },
+  "extensionDependencies": [
+    "vscode.git"
+  ],
   "categories": [
     "Other"
   ],
@@ -72,6 +75,21 @@
           "type": "string",
           "default": "DD-MM-YYYY HH:mm:ss",
           "markdownDescription": "Used when **Files: Date Time Format** is `custom`. Tokens: `YYYY`/`yyyy`, `YY`/`yy`, `MM` (month, 2 digits), `DD` (day), `HH` (24h), `mm` (minutes, **lowercase**), `ss`, `SSS` (milliseconds). Other characters (spaces, `-`, `:`, …) are copied as-is. Values use the local timezone."
+        },
+        "explorer-enhanced.folders.folderExpandInteraction": {
+          "type": "string",
+          "default": "inherit",
+          "enum": [
+            "inherit",
+            "doubleClick",
+            "singleClick"
+          ],
+          "enumDescriptions": [
+            "Do not change `workbench.tree.expandMode` (use your existing VS Code / workspace setting).",
+            "Single click on a folder row only selects it and updates **Files**; expand/collapse uses the twistie (>) or a double-click on the folder name. Sets `workbench.tree.expandMode` to `doubleClick` for this workspace (affects other sidebar trees too).",
+            "Single click on a folder row expands or collapses (VS Code default for trees)."
+          ],
+          "markdownDescription": "How folder rows expand in the **Folders** tree. `doubleClick` matches typical Explorer behavior: **chevron (>)** or **double-click** on the name toggles; **single click** only selects.\n\nImplemented via the built-in setting `workbench.tree.expandMode` at **workspace** scope when you choose `doubleClick` or `singleClick`, so **Built-in Explorer, SCM, and other trees** in the same workspace follow the same rule.\n\n**Files** shown in the Folders tree still **open on single click** (they use `vscode.open`; VS Code ignores expand mode for items that have a `command`)."
         }
       }
     },

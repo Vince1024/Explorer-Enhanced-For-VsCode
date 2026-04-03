@@ -91,9 +91,12 @@
         const wStatus = ((1 - listNameColFrac) * 100).toFixed(2) + '%';
         cols[0].style.setProperty('width', wName, 'important');
         cols[3].style.setProperty('width', wStatus, 'important');
+        /* Room for "3,↓M,M" — narrow % + td overflow:hidden was clipping the incoming group (left side). */
+        cols[3].style.setProperty('min-width', '6.75rem', 'important');
       } else {
         cols[0].style.removeProperty('width');
         cols[3].style.removeProperty('width');
+        cols[3].style.removeProperty('min-width');
       }
       return;
     }

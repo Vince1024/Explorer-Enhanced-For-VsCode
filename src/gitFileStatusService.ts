@@ -28,6 +28,11 @@ export interface FileGitStatusPairModel {
   readonly secondary?: FileGitStatusModel;
 }
 
+/** Webview row slice for `FileViewRowPayload.git.incoming`. */
+export function gitIncomingToRowPayload(m: FileGitStatusModel): { letter: string; kind: FileGitStatusKind } {
+  return { letter: m.letter, kind: m.kind };
+}
+
 /** Serializable file row for file-list webviews (shared contract for Files and future views). */
 export interface FileViewRowPayload {
   name: string;
@@ -42,7 +47,12 @@ export interface FileViewRowPayload {
    * Git decorations for this row.
    * Files can have both working-tree and index decorations; folders use roll-up (single badge) to avoid clutter.
    */
-  git?: { primary: { letter: string; kind: FileGitStatusKind }; secondary?: { letter: string; kind: FileGitStatusKind } };
+  git?: {
+    primary: { letter: string; kind: FileGitStatusKind };
+    secondary?: { letter: string; kind: FileGitStatusKind };
+    /** Upstream side of `git diff HEAD...@{upstream}` — Explorer shows as ↓ + letter (e.g. ↓M). */
+    incoming?: { letter: string; kind: FileGitStatusKind };
+  };
   /** From {@link vscode.languages.getDiagnostics} when Problems column is enabled (files only). */
   problems?: { errors: number; warnings: number; infos: number };
 }
@@ -110,13 +120,36 @@ interface GitChange {
   readonly status: number;
 }
 
+/** `vscode.Uri.isUri` is newer than our `engines.vscode`; duck-type Git `Change.uri` from the API. */
+function isFileUriFromGitApi(u: unknown): u is vscode.Uri {
+  if (!u || typeof u !== "object") {
+    return false;
+  }
+  const o = u as { scheme?: unknown; fsPath?: unknown };
+  return o.scheme === "file" && typeof o.fsPath === "string";
+}
+
 interface GitRepositoryState {
   readonly mergeChanges: readonly GitChange[];
   readonly indexChanges: readonly GitChange[];
   readonly workingTreeChanges: readonly GitChange[];
   readonly untrackedChanges: readonly GitChange[];
   readonly onDidChange: vscode.Event<void>;
+  /** Present on the real `vscode.git` repository; used for upstream / incoming file set. */
+  readonly HEAD?: {
+    readonly upstream?: { readonly remote: string; readonly name: string };
+    readonly behind?: number;
+  };
 }
+
+/**
+ * `diffBetween(ref1, ref2)` without `path` returns parsed `Change[]` at runtime (`git diff --name-status`), though
+ * `git.d.ts` types it as `Promise<string>`.
+ */
+type GitRepositoryWithDiff = GitRepository & {
+  diffBetween(ref1: string, ref2: string, path?: string): Promise<unknown>;
+  diffBetweenPatch?(ref1: string, ref2: string, path?: string): Promise<string>;
+};
 
 interface GitRepository {
   readonly rootUri: vscode.Uri;
@@ -142,14 +175,30 @@ interface GitExtensionExports {
 const GIT_BUMP_DEBOUNCE_MS = 90;
 
 /**
- * Canonical key for matching Git SCM paths to `Uri.fsPath` from the workspace.
- * Multi-root / Cursor sometimes surfaces `%20` in `fsPath` while `vscode.git` uses decoded spaces — strict
- * `path.normalize` alone makes Map lookups miss (one file shows M in native Explorer, none in Files).
+ * Stable key for Git path maps: under Windows, `vscode.git` paths and `Uri.fsPath` can differ by **case**, which
+ * caused most `Map.get` lookups to miss in the Files view while the built-in Explorer stayed correct.
  */
 function gitPathLookupKey(fsPath: string): string {
-  const decoded = fsPath.replace(/%20/gi, " ");
-  const n = path.normalize(decoded);
+  const n = path.normalize(fsPath);
   return process.platform === "win32" ? n.toLowerCase() : n;
+}
+
+/**
+ * Key for Maps that cache per open repository. `GitAPI.getRepository(uri)` is not guaranteed to return the **same
+ * object reference** as entries in `api.repositories`, so using `Map<GitRepository, …>` breaks lookups (incoming map
+ * appeared empty in Files while `diffBetween` had run on the hooked instance).
+ */
+function gitRepoRootLookupKey(repo: { rootUri: vscode.Uri }): string {
+  return gitPathLookupKey(repo.rootUri.fsPath);
+}
+
+function pathsEqualFile(aFs: string, bFs: string): boolean {
+  const na = path.normalize(aFs);
+  const nb = path.normalize(bFs);
+  if (process.platform === "win32") {
+    return na.toLowerCase() === nb.toLowerCase();
+  }
+  return na === nb;
 }
 
 /** Priority for folder roll-up: when several changes apply under one folder, the highest value wins. */
@@ -192,15 +241,15 @@ function gitStatusPriority(status: number): number {
  * Used to propagate folder roll-up to every ancestor of a changed path.
  */
 function forEachAncestorPathToRoot(startFs: string, rootFs: string, onSegment: (segmentNorm: string) => void): void {
-  const rootNorm = gitPathLookupKey(rootFs);
-  let cur = gitPathLookupKey(startFs);
+  const rootNorm = path.normalize(rootFs);
+  let cur = path.normalize(startFs);
   while (true) {
     onSegment(cur);
-    if (cur === rootNorm) {
+    if (pathsEqualFile(cur, rootNorm)) {
       break;
     }
-    const parent = gitPathLookupKey(path.dirname(cur));
-    if (parent === cur) {
+    const parent = path.dirname(cur);
+    if (pathsEqualFile(parent, cur)) {
       break;
     }
     cur = parent;
@@ -225,50 +274,77 @@ function buildRepoGitIndex(repo: GitRepository): RepoGitIndex {
   const indexByPath = new Map<string, GitChange>();
   const workingByPath = new Map<string, GitChange>();
   const untrackedByPath = new Map<string, GitChange>();
+  const changedFileKeys = new Set<string>();
+  /** Single ordering for fill + folder roll-up (merge → index → working → untracked). */
+  const scmBuckets: readonly { map: Map<string, GitChange>; changes: readonly GitChange[] }[] = [
+    { map: mergeByPath, changes: repo.state.mergeChanges },
+    { map: indexByPath, changes: repo.state.indexChanges },
+    { map: workingByPath, changes: repo.state.workingTreeChanges },
+    { map: untrackedByPath, changes: repo.state.untrackedChanges },
+  ];
   const addTo = (m: Map<string, GitChange>, changes: readonly GitChange[]): void => {
     for (const c of changes) {
       const k = gitPathLookupKey(c.uri.fsPath);
+      changedFileKeys.add(k);
       // Keep the first entry for that path (stable if Git extension emits duplicates).
       if (!m.has(k)) {
         m.set(k, c);
       }
     }
   };
-  addTo(mergeByPath, repo.state.mergeChanges);
-  addTo(indexByPath, repo.state.indexChanges);
-  addTo(workingByPath, repo.state.workingTreeChanges);
-  addTo(untrackedByPath, repo.state.untrackedChanges);
+  for (const { map, changes } of scmBuckets) {
+    addTo(map, changes);
+  }
 
   const folderRollupByPath = new Map<string, GitChange>();
   const rootFs = repo.rootUri.fsPath;
-  const buckets: readonly (readonly GitChange[])[] = [
-    repo.state.mergeChanges,
-    repo.state.indexChanges,
-    repo.state.workingTreeChanges,
-    repo.state.untrackedChanges,
-  ];
-  for (const changes of buckets) {
+  for (const { changes } of scmBuckets) {
     for (const c of changes) {
       const pr = gitStatusPriority(c.status);
-      const pNorm = gitPathLookupKey(c.uri.fsPath);
+      const pNorm = path.normalize(c.uri.fsPath);
       forEachAncestorPathToRoot(pNorm, rootFs, (ancestorNorm) => {
-        const prev = folderRollupByPath.get(ancestorNorm);
-        if (!prev || pr > gitStatusPriority(prev.status)) {
-          folderRollupByPath.set(ancestorNorm, c);
+        const ancestorKey = gitPathLookupKey(ancestorNorm);
+        const prev = folderRollupByPath.get(ancestorKey);
+        const prevPr = prev ? gitStatusPriority(prev.status) : -1;
+        if (!prev || pr > prevPr) {
+          folderRollupByPath.set(ancestorKey, c);
         }
       });
     }
   }
 
-  const changedFileKeys = new Set<string>([
-    ...mergeByPath.keys(),
-    ...indexByPath.keys(),
-    ...workingByPath.keys(),
-    ...untrackedByPath.keys(),
-  ]);
-
   return { mergeByPath, indexByPath, workingByPath, untrackedByPath, changedFileKeys, folderRollupByPath };
 }
+
+/** Repo-relative paths from unified diff (`diffBetweenPatch` / `git diff`), for fallback when `diffBetween` yields no usable rows. */
+function parseRepoRelativePathsFromDiffPatch(patch: string): string[] {
+  const out: string[] = [];
+  for (const line of patch.split(/\r?\n/)) {
+    if (!line.startsWith("diff --git ")) {
+      continue;
+    }
+    const rest = line.slice("diff --git ".length);
+    const tab = rest.indexOf("\t");
+    const segment = tab >= 0 ? rest.slice(0, tab) : rest;
+    const bIdx = segment.lastIndexOf(" b/");
+    if (bIdx === -1) {
+      continue;
+    }
+    let bPath = segment.slice(bIdx + 3).trim();
+    if ((bPath.startsWith('"') && bPath.endsWith('"')) || (bPath.startsWith("'") && bPath.endsWith("'"))) {
+      bPath = bPath.slice(1, -1);
+    }
+    if (bPath.length > 0) {
+      out.push(bPath.replace(/\//g, path.sep));
+    }
+  }
+  return out;
+}
+
+const INCOMING_PATHS_DEBOUNCE_MS = 280;
+
+/** When only `diffBetweenPatch` text is available (no per-file `Change[]` status). */
+const INCOMING_PATCH_FALLBACK_MODEL: FileGitStatusModel = { letter: "M", kind: "modified" };
 
 /**
  * Subscribes to the built-in Git extension and exposes {@link getModelForFile} + {@link onDidChange}.
@@ -283,6 +359,9 @@ export class GitFileStatusService implements vscode.Disposable {
   private readonly _repoSubs = new Map<GitRepository, vscode.Disposable>();
   /** Precomputed {@link RepoGitIndex} per repository reference; cleared when the repository closes. */
   private readonly _repoIndex = new Map<GitRepository, RepoGitIndex>();
+  /** Per repo root: path key → upstream/incoming badge (see {@link gitRepoRootLookupKey}). */
+  private readonly _incomingModelByPathKeyByRepo = new Map<string, ReadonlyMap<string, FileGitStatusModel>>();
+  private readonly _incomingTimersByRepo = new Map<GitRepository, ReturnType<typeof setTimeout>>();
   private _api: GitAPI | undefined;
   private _wiredApi = false;
   private _bumpTimer: ReturnType<typeof setTimeout> | undefined;
@@ -305,7 +384,31 @@ export class GitFileStatusService implements vscode.Disposable {
     }
     this._repoSubs.clear();
     this._repoIndex.clear();
+    for (const t of this._incomingTimersByRepo.values()) {
+      clearTimeout(t);
+    }
+    this._incomingTimersByRepo.clear();
+    this._incomingModelByPathKeyByRepo.clear();
     this._emitter.dispose();
+  }
+
+  /**
+   * Upstream-side status for `fileUri` in `git diff HEAD...@{upstream}` (parsed `Change[]` from `diffBetween`).
+   * Letter + kind match Explorer “incoming” badges (e.g. ↓M).
+   */
+  getUpstreamIncomingModel(fileUri: vscode.Uri): FileGitStatusModel | undefined {
+    if (fileUri.scheme !== "file" || !this._api || this._api.state !== "initialized") {
+      return undefined;
+    }
+    const repo = this._api.getRepository(fileUri);
+    if (!repo) {
+      return undefined;
+    }
+    const m = this._incomingModelByPathKeyByRepo.get(gitRepoRootLookupKey(repo));
+    if (!m || m.size === 0) {
+      return undefined;
+    }
+    return m.get(gitPathLookupKey(fileUri.fsPath));
   }
 
   /**
@@ -316,21 +419,42 @@ export class GitFileStatusService implements vscode.Disposable {
     if (folderUri.scheme !== "file" || !this._api || this._api.state !== "initialized") {
       return true;
     }
-    const F = gitPathLookupKey(folderUri.fsPath);
+    const fNorm = path.normalize(folderUri.fsPath);
     const sep = path.sep;
+    const prefixNonWin = fNorm + sep;
+    const prefixWin = process.platform === "win32" ? fNorm.toLowerCase() + sep : undefined;
     let sawAnyPath = false;
+    const considerPathKey = (pNorm: string): boolean => {
+      sawAnyPath = true;
+      const dir = path.dirname(pNorm);
+      if (pathsEqualFile(dir, fNorm) || pathsEqualFile(pNorm, fNorm)) {
+        return true;
+      }
+      if (prefixWin !== undefined) {
+        return pNorm.toLowerCase().startsWith(prefixWin);
+      }
+      return pNorm.startsWith(prefixNonWin);
+    };
+
     for (const repo of this._api.repositories) {
       let idx = this._repoIndex.get(repo);
       if (!idx) {
         idx = buildRepoGitIndex(repo);
         this._repoIndex.set(repo, idx);
       }
-      // Any file-level decoration under this folder could change the visible badges.
-      for (const pKey of idx.changedFileKeys) {
-        sawAnyPath = true;
-        const dirKey = gitPathLookupKey(path.dirname(pKey));
-        if (pKey === F || dirKey === F || pKey.startsWith(F + sep)) {
+      // Any file-level SCM decoration under this folder could change the visible badges.
+      for (const pNorm of idx.changedFileKeys) {
+        if (considerPathKey(pNorm)) {
           return true;
+        }
+      }
+      // Incoming-only files (no local index/working change) still need a Files refresh when the upstream set arrives.
+      const incoming = this._incomingModelByPathKeyByRepo.get(gitRepoRootLookupKey(repo));
+      if (incoming) {
+        for (const pNorm of incoming.keys()) {
+          if (considerPathKey(pNorm)) {
+            return true;
+          }
         }
       }
     }
@@ -358,21 +482,21 @@ export class GitFileStatusService implements vscode.Disposable {
       idx = buildRepoGitIndex(repo);
       this._repoIndex.set(repo, idx);
     }
-    const norm = gitPathLookupKey(fileUri.fsPath);
+    const key = gitPathLookupKey(fileUri.fsPath);
     const isDirectory = entryKind === "folder";
     if (isDirectory) {
-      const rolled = idx.folderRollupByPath.get(norm);
+      const rolled = idx.folderRollupByPath.get(key);
       return rolled ? gitStatusToModel(rolled.status) : undefined;
     }
 
     // File-level: match Explorer behavior — merge/conflict dominates, then working tree, then staged/index.
-    const merge = idx.mergeByPath.get(norm);
+    const merge = idx.mergeByPath.get(key);
     if (merge) {
       const m = gitStatusToModel(merge.status);
       return m ? { primary: m } : undefined;
     }
-    const work = idx.workingByPath.get(norm) ?? idx.untrackedByPath.get(norm);
-    const staged = idx.indexByPath.get(norm);
+    const work = idx.workingByPath.get(key) ?? idx.untrackedByPath.get(key);
+    const staged = idx.indexByPath.get(key);
     const workModel = work ? gitStatusToModel(work.status) : undefined;
     const stagedModel = staged ? gitStatusToModel(staged.status) : undefined;
 
@@ -386,6 +510,90 @@ export class GitFileStatusService implements vscode.Disposable {
       return stagedModel;
     }
     return undefined;
+  }
+
+  private _scheduleIncomingPathsRefresh(repo: GitRepository): void {
+    const prev = this._incomingTimersByRepo.get(repo);
+    if (prev !== undefined) {
+      clearTimeout(prev);
+    }
+    const t = setTimeout(() => {
+      this._incomingTimersByRepo.delete(repo);
+      void this._refreshIncomingPathsForRepo(repo);
+    }, INCOMING_PATHS_DEBOUNCE_MS);
+    this._incomingTimersByRepo.set(repo, t);
+  }
+
+  private _setIncomingModelsForRepo(repo: GitRepository, map: Map<string, FileGitStatusModel>): void {
+    this._incomingModelByPathKeyByRepo.set(gitRepoRootLookupKey(repo), map);
+  }
+
+  private async _refreshIncomingPathsForRepo(repo: GitRepository): Promise<void> {
+    const r = repo as unknown as GitRepositoryWithDiff;
+    const head = r.state.HEAD;
+    if (!head?.upstream) {
+      this._setIncomingModelsForRepo(repo, new Map());
+      this._bump();
+      return;
+    }
+    const upRef = `${head.upstream.remote}/${head.upstream.name}`;
+    const rootFs = path.normalize(r.rootUri.fsPath);
+    try {
+      const byKey = await this._buildIncomingModelMap(r, rootFs, upRef);
+      this._setIncomingModelsForRepo(repo, byKey);
+    } catch {
+      this._setIncomingModelsForRepo(repo, new Map());
+    }
+    this._bump();
+  }
+
+  /**
+   * Prefer `diffBetween` → `Change[]` (letter per status). If that yields nothing (wrong type, skipped URIs, API quirks),
+   * fall back to `diffBetweenPatch` + `diff --git` path list with a generic incoming-modified badge.
+   */
+  private async _buildIncomingModelMap(
+    r: GitRepositoryWithDiff,
+    rootFs: string,
+    upRef: string
+  ): Promise<Map<string, FileGitStatusModel>> {
+    const byKey = new Map<string, FileGitStatusModel>();
+    let raw: unknown;
+    try {
+      raw = await r.diffBetween("HEAD", upRef);
+    } catch {
+      raw = undefined;
+    }
+    if (Array.isArray(raw)) {
+      for (const item of raw) {
+        const ch = item as GitChange;
+        if (!isFileUriFromGitApi(ch?.uri)) {
+          continue;
+        }
+        const model = gitStatusToModel(ch.status);
+        if (!model) {
+          continue;
+        }
+        byKey.set(gitPathLookupKey(ch.uri.fsPath), model);
+      }
+    }
+    if (byKey.size > 0) {
+      return byKey;
+    }
+    if (typeof r.diffBetweenPatch !== "function") {
+      return byKey;
+    }
+    try {
+      const patch = await r.diffBetweenPatch("HEAD", upRef);
+      if (typeof patch !== "string" || patch.length === 0) {
+        return byKey;
+      }
+      for (const rel of parseRepoRelativePathsFromDiffPatch(patch)) {
+        byKey.set(gitPathLookupKey(path.join(rootFs, rel)), INCOMING_PATCH_FALLBACK_MODEL);
+      }
+    } catch {
+      /* empty */
+    }
+    return byKey;
   }
 
   private _bump(): void {
@@ -403,8 +611,10 @@ export class GitFileStatusService implements vscode.Disposable {
       return;
     }
     this._repoIndex.set(repo, buildRepoGitIndex(repo));
+    this._scheduleIncomingPathsRefresh(repo);
     const sub = repo.state.onDidChange(() => {
       this._repoIndex.set(repo, buildRepoGitIndex(repo));
+      this._scheduleIncomingPathsRefresh(repo);
       this._bump();
     });
     this._repoSubs.set(repo, sub);
@@ -416,6 +626,12 @@ export class GitFileStatusService implements vscode.Disposable {
       sub.dispose();
       this._repoSubs.delete(repo);
     }
+    const incT = this._incomingTimersByRepo.get(repo);
+    if (incT !== undefined) {
+      clearTimeout(incT);
+      this._incomingTimersByRepo.delete(repo);
+    }
+    this._incomingModelByPathKeyByRepo.delete(gitRepoRootLookupKey(repo));
     this._repoIndex.delete(repo);
   }
 

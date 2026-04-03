@@ -1,31 +1,8 @@
-<p align="center">
-  <a href="https://github.com/Vince1024/Explorer-Enhanced-For-VsCode/releases/latest"><img src="https://img.shields.io/github/v/release/Vince1024/Explorer-Enhanced-For-VsCode?sort=semver&style=for-the-badge&label=release&logo=github" alt="Latest GitHub release" /></a>
-  <img src="https://img.shields.io/badge/VS%20Code-%5E1.85.0-1e1e1e?style=for-the-badge&logo=visualstudiocode&logoColor=white" alt="VS Code engine" />
-  <img src="https://img.shields.io/badge/platform-VS%20Code%20%7C%20Cursor-2d2d2d?style=for-the-badge" alt="Platform" />
-</p>
-<p align="center"><sub>Le badge <strong>release</strong> suit la dernière <strong>GitHub Release</strong> (workflow CI). Le <code>version</code> dans <code>package.json</code> est la base locale ; la publication peut l’incrémenter.</sub></p>
+# Explorer Enhanced
 
-<h1 align="center">Explorer Enhanced</h1>
+Folder-first navigation for VS Code: a dedicated activity bar container with a **Folders** tree and a **Files** webview (name, modified, size, and status columns, codicon toolbar).
 
-<p align="center">
-  <strong>Folder-first</strong> sidebar navigation: a <strong>Folders</strong> tree view and a <strong>Files</strong> webview (table or grid: name, modified time, size, optional Git and Problems), with a codicon-style toolbar, without replacing the built-in Explorer.
-</p>
-
-<p align="center">
-  <a href="https://github.com/Vince1024/Explorer-Enhanced-For-VsCode">GitHub</a>
-  &nbsp;·&nbsp;
-  <a href="#screenshots">Screenshots</a>
-  &nbsp;·&nbsp;
-  <a href="#features">Features</a>
-  &nbsp;·&nbsp;
-  <a href="#getting-started">Getting started</a>
-  &nbsp;·&nbsp;
-  <a href="#settings">Settings</a>
-  &nbsp;·&nbsp;
-  <a href="#development">Development</a>
-</p>
-
-<br />
+**Repository:** [Explorer-Enhanced-For-VsCode](https://github.com/Vince1024/Explorer-Enhanced-For-VsCode)
 
 ## Screenshots
 
@@ -55,99 +32,67 @@
   </tr>
 </table>
 
+## Requirements
+
+- **VS Code** `^1.85.0`
+- Built-in **Git** extension (`vscode.git`) — used for Git decorations in **Files** and related behavior.
+
 ## Features
 
-| Feature | Comment|
-|:---|:-------|
-| **Tree** | Workspace roots and multi-root workspaces; collapsible folders; optional <strong>files under folder nodes</strong> (Explorer-style), toggled from the view title and commands. |
-| **Files** | **List**, **Details**, or **Icons**; sortable columns/rows; toolbar + path bar toggles (layout, subfolders in the list, Git, Problems, and other display options). With subfolders listed, <strong>double-click</strong> a folder row to drill into it. |
-| **Look and feel** | <strong>Modified</strong> column formats from Settings (`locale`, `localeDate`, `localeTime`, `iso`, `relative`, <code>custom</code> pattern). Optional <strong>row/column guides</strong>, <strong>hide path</strong> in the hint line, and <strong>recursive folder size</strong> for folder rows (heavier disk I/O). In **Details**, draggable column widths; in **List**, adjustable name vs. status width—both <strong>persist per workspace</strong>. |
-| **Git** | Badges / states when the built-in Git extension reports SCM data (can be turned off from the webview). |
-| **Problems** | Counts or indicators from workspace diagnostics (can be turned off from the webview). |
-| **Sync** | Selecting a folder in <strong>Folders</strong> drives <strong>Files</strong>. Optional <strong>follow active editor</strong> (reveal in the tree + keep Files in step) and <strong>highlight</strong> rows for files that still have editor tabs—workspace toggles. |
-| **Actions** | Codicon <strong>toolbar</strong> in <strong>Files</strong>. <strong>Context menus</strong> on <strong>Folders</strong> and on <strong>Files</strong> rows: open (and open to side), reveal in Explorer / OS, integrated terminal, cut/copy/paste, compare, rename, delete, and other Explorer-aligned commands where available. |
+### Folders
 
-## Getting started
+- Workspace roots and subfolders; optional **Show files in tree** (from the view title menu or commands).
+- Context actions: new file/folder, refresh, reveal in OS, integrated terminal, copy path, rename, delete, reveal in built-in Explorer.
+- **Folder expand behavior** (see [Settings](#settings)): you can align with the built-in Explorer so a **single click** only **selects** a folder (and drives the **Files** view), while **expand/collapse** uses the **twistie (`>`)** or a **double-click** on the folder label. This is implemented by syncing `workbench.tree.expandMode` at **workspace** scope when you choose that mode in settings (see limitations below).
 
-1. Open a **folder** or multi-root **workspace**.
-2. Click the **Explorer Enhanced** icon in the **activity bar** (folder glyph).
-3. In **Folders**, select a folder: **Files** lists its immediate children (and optional flat subfolder rows when enabled).
-4. Open a file from the table; with subfolders listed, **double-click** a folder row to drill in.
+### Files
 
-**Command Palette:** run **Explorer Enhanced: Show** (`explorer-enhanced.focus`) to reveal the container and focus **Folders**.
+- Table or icon layout: sortable columns, resizable widths, optional Git status, problems counts, folder sizes, path hint, layout switcher (list / details / icons).
+- Git badges mirror the built-in Explorer where possible: working tree + index, merge/conflict, and **incoming (upstream)** when behind a tracked branch.
 
 ## Settings
 
-### Declared in Settings UI (`explorer-enhanced.*`)
+| ID | Description |
+|----|-------------|
+| `explorer-enhanced.files.dateTimeFormat` | How **Modified** is formatted (`locale`, `iso`, `relative`, `custom`, …). |
+| `explorer-enhanced.files.dateTimeCustomPattern` | Pattern when format is `custom` (tokens: `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss`, …). |
+| `explorer-enhanced.folders.folderExpandInteraction` | How **Folders** tree rows expand. See [Folder expand interaction](#folder-expand-interaction). |
 
-These keys are defined in `package.json`:
+Additional options (subfolders in list, Git/problems columns, etc.) are exposed from the **Files** view settings menu and stored in workspace state.
 
-| Key | Role |
-|:-----|:------|
-| `explorer-enhanced.files.dateTimeFormat` | **Modified** column format: `locale`, `localeDate`, `localeTime`, `iso`, `relative`, `custom`. |
-| `explorer-enhanced.files.dateTimeCustomPattern` | Pattern when format is `custom` (see the in-product setting description). |
+### Folder expand interaction
 
-### Stored in workspace state (no dedicated settings row for these toggles)
+| Value | Behavior |
+|-------|----------|
+| `inherit` (default) | The extension does **not** change `workbench.tree.expandMode`. Use your existing VS Code / workspace preference. |
+| `doubleClick` | Sets **`workbench.tree.expandMode`** to **`doubleClick`** for the **current workspace**. Single click on a **folder** row selects only; the **twistie** or **double-click** on the label toggles expand/collapse. |
+| `singleClick` | Sets **`workbench.tree.expandMode`** to **`singleClick`** for the workspace (classic tree: one click on the row toggles). |
 
-The following toggles live in **workspace state** (and may be migrated once from legacy `fileViews.*` keys in `settings.json` if still present):
+**Important**
 
-| Topic | Legacy `fileViews` key (migration) | Behavior |
-|:-------|:-------------------------------------|:----------|
-| Git column / status | `fileViews.files.showGitStatus` | On by default unless explicitly turned off. |
-| Problems in Files | — | On by default; toggle from the webview. |
-| Subfolders as rows in Files | `fileViews.files.showFoldersInList` | Off until enabled. |
-| Files under folder nodes | `fileViews.folders.showFilesInTree` | Off by default; also **Folders** title-bar commands. |
-| Row separator lines | — | Default: off. |
-| Recursive folder size | — | Default: off (heavier disk scan). |
-| Files layout (List / Details / Icons) | `fileViews.files.viewLayout` | Migrated once into workspace state; `explorer-enhanced.files.viewLayout` is read first when memento is empty. |
+- Applying `doubleClick` or `singleClick` updates **workspace** settings, so **other sidebar trees** in the same workspace (built-in Explorer, SCM, …) use the same expand mode.
+- **File** nodes in the Folders tree (when “files in tree” is enabled) still **open on single click** because they use `vscode.open`. VS Code does not apply tree expand mode to items that define a `command`.
 
-**Details** column widths are draggable and **persist per workspace**.
+To configure expand behavior globally without the extension writing the workspace file, set **`Workbench › Tree: Expand Mode`** (`workbench.tree.expandMode`) yourself and keep **`Folders: Folder Expand Interaction`** on **`inherit`**.
 
-<details>
-<summary><strong>Commands</strong> (click to expand)</summary>
+## Commands
 
-| ID | Title |
-|:----|:--------|
-| `explorer-enhanced.focus` | Explorer Enhanced: Show |
-| `explorer-enhanced.showFoldersInList` | Show subfolders in Files list |
-| `explorer-enhanced.hideFoldersInList` | Hide subfolders in Files list |
-| `explorer-enhanced.viewLayout.list` | List |
-| `explorer-enhanced.viewLayout.detail` | Details |
-| `explorer-enhanced.viewLayout.icons` | Icons |
-| `explorer-enhanced.folders.showFilesInTree` | Show files in Folders tree |
-| `explorer-enhanced.folders.hideFilesInTree` | Hide files in Folders tree (folders only) |
-
-**Folders** context menu: New File / Folder, Refresh, Reveal in Explorer / OS, Open in Integrated Terminal, Copy Path / Relative Path, Rename, Delete.
-
-</details>
-
-## Requirements
-
-- **VS Code** `^1.85.0` (see `package.json` → `engines`).
-- A **workspace folder** (empty window shows a hint in **Folders**).
-- **Git column:** built-in **Git** extension enabled and a repository detected.
+Use the Command Palette (`Explorer Enhanced:`) for focus, layout, toggles (subfolders in list, files in folder tree), and folder context actions when invoked from the tree.
 
 ## Development
 
 ```bash
 npm install
-npm run lint       # ESLint (TypeScript, type-aware rules)
-npm run lint:fix   # same + auto-fix where applicable
-npm run compile    # one-off build
-npm run watch      # TypeScript watch
-npm run package    # vsce package (runs prepublish compile)
+npm run compile
 ```
 
-**CI:** on every **push** and **pull request**, [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `npm ci`, `npm run lint`, and `npm run compile`.
+Press **F5** in VS Code to launch the **Extension Development Host** (see `launch.json` / `tasks.json`).
 
-**Publish (Visual Studio Marketplace):** pushes to **`main`** or **`master`** trigger [`.github/workflows/Publish.yml`](.github/workflows/Publish.yml) (semver tag + `vsce publish`). Configure repository secrets `VSCE_TOKEN` and `PAT_TOKEN` as described in that workflow file.
+```bash
+npm run lint
+npm run package   # VSIX via vsce
+```
 
-## License
+## Changelog
 
-Add a `LICENSE` file and a one-line note here before public publishing (e.g. MIT).
-
----
-
-## Marketplace
-
-Extension ID: `Vincent1024.explorer-enhanced`.
+See [CHANGELOG.md](./CHANGELOG.md).
