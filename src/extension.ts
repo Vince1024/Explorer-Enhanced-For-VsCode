@@ -12,6 +12,10 @@ import {
   getShowFilesInFolderTreeFromWorkspaceState,
 } from "./filePaneSettings";
 import { isFsDirectory, isFsFile } from "./fileTypeUtils";
+import {
+  createFolderTreeDragAndDropController,
+  moveWorkspaceRootRelative,
+} from "./folderTreeDragAndDropController";
 import { registerFoldersTreeExpandModeSync } from "./folderTreeExpandMode";
 import { FolderTreeDataProvider, FolderTreeItem } from "./folderTreeDataProvider";
 import { GitFileStatusService } from "./gitFileStatusService";
@@ -141,7 +145,15 @@ export function activate(context: vscode.ExtensionContext): void {
   const treeView = vscode.window.createTreeView("explorer-enhanced.folderTree", {
     treeDataProvider: folderData,
     showCollapseAll: true,
+    dragAndDropController: createFolderTreeDragAndDropController(),
   });
+
+  const syncExplorerEnhancedFolderContexts = (): void => {
+    const n = vscode.workspace.workspaceFolders?.length ?? 0;
+    void vscode.commands.executeCommand("setContext", "explorer-enhanced.multiRootWorkspace", n > 1);
+  };
+
+  syncExplorerEnhancedFolderContexts();
 
   const navigateFilesToFolder = async (folderUri: vscode.Uri): Promise<void> => {
     const p = filePaneHost.current;
@@ -282,6 +294,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      syncExplorerEnhancedFolderContexts();
       folderData.refresh();
       updateFolderTreeChrome();
       setupRootRecursiveWatchers();
@@ -369,6 +382,26 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     registerFolderCtx("explorer-enhanced.ctx.folder.delete", (item) =>
       actions.deleteResource(item.uri, bumpAfterFsChange)
+    ),
+    vscode.commands.registerCommand(
+      "explorer-enhanced.ctx.folder.moveWorkspaceRootUp",
+      (item: FolderTreeItem | undefined) => {
+        const it = item ?? treeView.selection[0];
+        if (!it?.uri) {
+          return;
+        }
+        moveWorkspaceRootRelative(it, -1);
+      }
+    ),
+    vscode.commands.registerCommand(
+      "explorer-enhanced.ctx.folder.moveWorkspaceRootDown",
+      (item: FolderTreeItem | undefined) => {
+        const it = item ?? treeView.selection[0];
+        if (!it?.uri) {
+          return;
+        }
+        moveWorkspaceRootRelative(it, 1);
+      }
     )
   );
 

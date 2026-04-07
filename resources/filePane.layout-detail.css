@@ -22,11 +22,7 @@ body.explorer-enhanced-layout-detail:not(.explorer-enhanced-show-git):not(.explo
   pointer-events: none;
 }
 
-/* Détail : min-width status seulement quand Git ou Problems est affiché (% depuis filePane.columns.js). */
-body.explorer-enhanced-layout-detail.explorer-enhanced-show-git .files-grid-surface col.grid-col-status,
-body.explorer-enhanced-layout-detail.explorer-enhanced-show-problems .files-grid-surface col.grid-col-status {
-  min-width: 2.5rem;
-}
+/* Status column width in Details comes from filePane.columns.js (px); no CSS min-width so user min (e.g. 20px) is honored. */
 
 /* List & Details: toggle row separators via Settings → Show lines (Icons ignore — table body hidden). */
 body.explorer-enhanced-layout-detail:not(.explorer-enhanced-show-row-lines) #grid-head thead th,

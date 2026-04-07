@@ -4,7 +4,17 @@ All notable changes to **Explorer Enhanced** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Release entries match the git tags `v0.0.1` … `v0.0.8` (commit SHAs in parentheses).
+Release entries are **newest first** (recommended by Keep a Changelog). Older bullets may reference git tags `v0.0.1`–`v0.0.8` (commit SHAs in parentheses); **`v1.0.0`** is the first stable major line.
+
+## [1.0.0] - 2026-04-04
+
+### Added
+
+- **Folders**: drag-and-drop **workspace roots** (multi-root only) to reorder like the built-in Explorer; drop on empty tree background moves the folder to the **end**. Subfolders / file rows are not draggable (single root selected per drag).
+
+### Changed
+
+- **Files webview** (`filePane.columns.js`): column min/max limits come from extension boot (`MIN_DETAIL_COL_PX` / `MAX_DETAIL_COL_PX` in `filePaneWebviewSupport.ts`) so TS validation and webview clamping cannot drift; refactored resize and fourth-column width logic (`tripleAfterEdgeDrag`, `setFourthColGitProb`).
 
 ## [0.0.9] - 2026-04-03
 

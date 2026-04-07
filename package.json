@@ -3,7 +3,7 @@
   "displayName": "Explorer Enhanced",
   "description": "Folder-first navigation with a Files webview (table: name, modified, size; codicon-based toolbar).",
   "icon": "images/explorer-enhanced.png",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "publisher": "Vincent1024",
   "repository": {
     "type": "git",
@@ -192,6 +192,18 @@
       {
         "command": "explorer-enhanced.ctx.folder.delete",
         "title": "Delete"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.moveWorkspaceRootUp",
+        "title": "Move Workspace Folder Up",
+        "category": "Explorer Enhanced",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "explorer-enhanced.ctx.folder.moveWorkspaceRootDown",
+        "title": "Move Workspace Folder Down",
+        "category": "Explorer Enhanced",
+        "icon": "$(arrow-down)"
       }
     ],
     "menus": {
@@ -275,6 +287,14 @@
         {
           "command": "explorer-enhanced.folders.hideFilesInTree",
           "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.moveWorkspaceRootUp",
+          "when": "false"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.moveWorkspaceRootDown",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -304,6 +324,16 @@
           "command": "explorer-enhanced.ctx.folder.refresh",
           "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.folder",
           "group": "navigation@10"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.moveWorkspaceRootUp",
+          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.folder && explorer-enhanced.multiRootWorkspace",
+          "group": "8_workspace@1"
+        },
+        {
+          "command": "explorer-enhanced.ctx.folder.moveWorkspaceRootDown",
+          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.folder && explorer-enhanced.multiRootWorkspace",
+          "group": "8_workspace@2"
         },
         {
           "command": "explorer-enhanced.ctx.folder.revealInExplorer",

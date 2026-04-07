@@ -12,6 +12,17 @@ on:
     branches:
       - main
       - master
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Semver increment from latest git tag (push to main always uses patch)"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 jobs:
   deploy:
@@ -30,12 +41,14 @@ jobs:
           node-version: "20"
           cache: npm
 
+      # Next version = latest semver git tag + increment. Does not read package.json on the branch.
+      # Push → patch only. For 1.0.0: Actions → Deploy Extension → Run workflow → bump = major (after last tag e.g. v0.0.9).
       - name: Get next version
         uses: reecetech/version-increment@2023.9.3
         id: version
         with:
           scheme: semver
-          increment: patch
+          increment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.bump || 'patch' }}
 
       - name: Tag and release
         uses: avakar/tag-and-release@v1

@@ -11,7 +11,12 @@ if (!Icons || typeof Icons.svgIcon !== 'function' || typeof Icons.iconForEntry !
 const Cols = globalThis.FilePaneColumns;
 const Menus = globalThis.FilePaneMenus;
 const Table = globalThis.FilePaneTable;
-if (!Cols || typeof Cols.init !== 'function' || typeof Cols.applyColWidths !== 'function') {
+if (
+  !Cols ||
+  typeof Cols.init !== 'function' ||
+  typeof Cols.applyColWidths !== 'function' ||
+  typeof Cols.syncDetailColWidthsFromHost !== 'function'
+) {
   throw new Error('explorer-enhanced: FilePaneColumns missing (load filePane.columns.js before filePane.js)');
 }
 if (!Menus || typeof Menus.init !== 'function' || typeof Menus.showFileCtxMenu !== 'function') {
@@ -104,9 +109,10 @@ Cols.init({
   gridHeadEl,
   getShowGitStatus: () => showGitStatus,
   getShowProblemsInFiles: () => showProblemsInFiles,
-  persistedColFracs: boot.persistedColFracs,
-  defaultColFracs: boot.defaultColFracs,
-  listNameColFracBoot: boot.listNameColFrac,
+  persistedDetailColWidthsPx: boot.persistedDetailColWidthsPx,
+  defaultDetailColWidthsPx: boot.defaultDetailColWidthsPx,
+  detailColMinPx: boot.detailColMinPx,
+  detailColMaxPx: boot.detailColMaxPx,
 });
 
 Menus.init({
@@ -223,6 +229,13 @@ function applyEditorSelection(fsPath) {
 window.addEventListener('message', (event) => {
   const msg = event.data;
   if (!msg) return;
+  if (msg.type === 'syncDetailColWidthsPx') {
+    if (Array.isArray(msg.detailColWidthsPx) && msg.detailColWidthsPx.length === 3) {
+      Cols.syncDetailColWidthsFromHost(msg.detailColWidthsPx);
+      Cols.applyColWidths();
+    }
+    return;
+  }
   if (msg.type === 'selectPath') {
     applyEditorSelection(msg.path || '');
     syncOpenEditorHighlightToDom();
@@ -278,6 +291,9 @@ window.addEventListener('message', (event) => {
     document.body.classList.toggle('explorer-enhanced-layout-detail', msg.viewLayout === 'detail');
     document.body.classList.toggle('explorer-enhanced-layout-icons', msg.viewLayout === 'icons');
     Menus.syncViewMenuActive(msg.viewLayout);
+  }
+  if (Array.isArray(msg.detailColWidthsPx) && msg.detailColWidthsPx.length === 3) {
+    Cols.syncDetailColWidthsFromHost(msg.detailColWidthsPx);
   }
   Cols.applyColWidths();
   Table.replaceRows(msg.rows);

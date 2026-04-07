@@ -38,7 +38,6 @@ import {
 import { gitIncomingToRowPayload, type FileViewRowPayload, type GitFileStatusService } from "./gitFileStatusService";
 import {
   buildFilePaneWebviewCsp,
-  DEFAULT_COL_FRACS,
   FILE_PANE_VIEW_TYPE,
   FILE_PANE_WEBVIEW_CSS_COMMON,
   FILE_PANE_WEBVIEW_CSS_LAYOUT_DETAIL,
@@ -57,15 +56,17 @@ import {
   filesListingCacheKey,
   FILES_NAME_COLLATOR,
   FILES_VIEW_BASE_TITLE,
-  normalizeColFracs,
-  normalizeListNameColFrac,
+  DEFAULT_DETAIL_COL_PX,
+  MAX_DETAIL_COL_PX,
+  MIN_DETAIL_COL_PX,
+  normalizeDetailColWidthsPx,
   openFileInEditorFromWebview,
+  resolvePersistedDetailColWidths,
   statePayloadSignature,
   svgExplorerViewDetail,
   svgExplorerViewIcons,
   svgExplorerViewList,
-  WORKSPACE_COL_FRACS_KEY,
-  WORKSPACE_LIST_NAME_FRAC_KEY,
+  WORKSPACE_DETAIL_COL_PX_KEY,
   type FilePaneWebviewInboundMessage,
 } from "./filePaneWebviewSupport";
 
@@ -458,6 +459,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       showPath: boolean;
       openEditorPaths: string[];
       viewLayout: ViewLayoutSetting;
+      detailColWidthsPx: readonly [number, number, number];
     },
     titleCounts: null | { fileCount: number; folderCount: number; showFoldersInList: boolean }
   ): boolean {
@@ -834,6 +836,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     showPath: boolean;
     openEditorPaths: string[];
     viewLayout: ViewLayoutSetting;
+    detailColWidthsPx: readonly [number, number, number];
   } {
     const highlightOpenFiles = settings.highlightOpenFiles;
     return {
@@ -853,27 +856,25 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       showPath: settings.showPath,
       openEditorPaths: openEditorPathsResolved,
       viewLayout,
+      detailColWidthsPx: resolvePersistedDetailColWidths(this._context.workspaceState),
     };
   }
 
-  private _tryPersistColumnFractions(fracs: number[] | undefined): boolean {
-    if (!Array.isArray(fracs) || fracs.length !== 4) {
+  private _tryPersistDetailColWidthsPx(px: number[] | undefined): boolean {
+    if (!Array.isArray(px) || px.length !== 3) {
       return false;
     }
-    if (!fracs.every((x) => typeof x === "number" && Number.isFinite(x) && x > 0)) {
-      return true;
+    const n = normalizeDetailColWidthsPx(px);
+    if (n === null) {
+      return false;
     }
-    const sum = fracs[0] + fracs[1] + fracs[2] + fracs[3];
-    if (sum <= 0) {
-      return true;
-    }
-    const n: [number, number, number, number] = [
-      fracs[0] / sum,
-      fracs[1] / sum,
-      fracs[2] / sum,
-      fracs[3] / sum,
-    ];
-    void this._context.workspaceState.update(WORKSPACE_COL_FRACS_KEY, n);
+    void this._context.workspaceState.update(WORKSPACE_DETAIL_COL_PX_KEY, n).then(() => {
+      this._lastPostedStateSignature = undefined;
+      const wv = this._view?.webview;
+      if (wv) {
+        void wv.postMessage({ type: "syncDetailColWidthsPx", detailColWidthsPx: n });
+      }
+    });
     return true;
   }
 
@@ -1116,14 +1117,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   }
 
   private _handleWebviewMessage(msg: FilePaneWebviewInboundMessage): void {
-    if (msg?.type === "saveColFracs" && this._tryPersistColumnFractions(msg.fracs)) {
-      return;
-    }
-    if (msg?.type === "saveListNameColFrac" && typeof msg.listNameColFrac === "number") {
-      void this._context.workspaceState.update(
-        WORKSPACE_LIST_NAME_FRAC_KEY,
-        normalizeListNameColFrac(msg.listNameColFrac)
-      );
+    if (msg?.type === "saveDetailColWidthsPx") {
+      void this._tryPersistDetailColWidthsPx(msg.detailColWidthsPx);
       return;
     }
     if (
@@ -1230,16 +1225,15 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     const filePaneJsTableUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_TABLE);
     const filePaneJsIconGridUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_ICON_GRID);
     const filePaneJsUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS);
-    const persistedFracs = normalizeColFracs(
-      this._context.workspaceState.get<number[]>(WORKSPACE_COL_FRACS_KEY)
-    );
+    const persistedDetailColWidthsPx = resolvePersistedDetailColWidths(this._context.workspaceState);
     const htmlSettingsConfigs = resolveEnhanceExplorerSettingsConfigs();
     const filesSnap = getFilesSettingsSnapshot(this._context.workspaceState, htmlSettingsConfigs);
     const filesPaneLayout = getViewLayoutForFilesPane(this._context.workspaceState, htmlSettingsConfigs);
     const filePaneBoot = {
-      persistedColFracs: persistedFracs,
-      defaultColFracs: [...DEFAULT_COL_FRACS],
-      listNameColFrac: normalizeListNameColFrac(this._context.workspaceState.get(WORKSPACE_LIST_NAME_FRAC_KEY)),
+      persistedDetailColWidthsPx,
+      defaultDetailColWidthsPx: [...DEFAULT_DETAIL_COL_PX],
+      detailColMinPx: [...MIN_DETAIL_COL_PX],
+      detailColMaxPx: [...MAX_DETAIL_COL_PX],
       dateTimeCustomPattern: DEFAULT_DATE_TIME_CUSTOM_PATTERN,
       showGitStatus: filesSnap.showGitStatus,
       showProblemsInFiles: filesSnap.showProblemsInFiles,

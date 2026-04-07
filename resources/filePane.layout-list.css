@@ -68,7 +68,7 @@ body.explorer-enhanced-layout-list.explorer-enhanced-show-git th.status-col,
 body.explorer-enhanced-layout-list.explorer-enhanced-show-git td.status-cell,
 body.explorer-enhanced-layout-list.explorer-enhanced-show-problems th.status-col,
 body.explorer-enhanced-layout-list.explorer-enhanced-show-problems td.status-cell {
-  min-width: 6.75rem;
+  /* Width comes from filePane.columns.js (px), same as Details; no CSS min-width. */
   box-sizing: border-box;
 }
 

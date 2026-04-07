@@ -361,9 +361,12 @@ th.status-col {
   align-items: center;
   justify-content: flex-end;
 }
-/* Même gouttière que td.status-cell (évite le padding-right: 10px des autres th). */
+/* Visait la même gouttière que td.status-cell, mais #grid-head thead th { padding-right: 10px } gagne en spécificité et repoussait l’œil vers la gauche. */
 thead th.status-col {
   padding: 4px 6px 4px 2px;
+}
+#grid-head thead th.status-col {
+  padding: 4px 2px 4px 2px;
 }
 /* œil : bloc calé à droite du th ; poignée list en position absolute à gauche. */
 .status-header-viz {

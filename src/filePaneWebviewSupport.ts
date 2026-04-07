@@ -10,9 +10,8 @@ export interface FilePaneWebviewInboundMessage {
   path?: string;
   action?: string;
   preview?: boolean;
-  fracs?: number[];
-  /** List layout: fraction of table width for the Name column (combined status column gets the rest). */
-  listNameColFrac?: number;
+  /** Details layout: pixel widths for Modified, Size, Status (Name uses leftover width). */
+  detailColWidthsPx?: number[];
   value?: unknown;
 }
 
@@ -21,13 +20,65 @@ export const FILE_PANE_VIEW_TYPE = "explorer-enhanced.filePane";
 /** Sidebar view title from package.json; suffix with count when a folder is selected. */
 export const FILES_VIEW_BASE_TITLE = "Files";
 
-/** Persist Files table column width ratios per workspace (survives VS Code / Cursor restart). */
+/** @deprecated Legacy detail layout: four fractional column widths (replaced by {@link WORKSPACE_DETAIL_COL_PX_KEY}). */
 export const WORKSPACE_COL_FRACS_KEY = "explorer-enhanced.filePane.colFracs";
+
+/** Detail layout: pixel widths for Modified, Size, Git/Problems (Name column is not stored; it fills the rest). */
+export const WORKSPACE_DETAIL_COL_PX_KEY = "explorer-enhanced.filePane.detailColWidthsPx";
 
 /** Detail layout: Name, Modified, Size, Status — must sum to 1 conceptually when normalized. */
 export const DEFAULT_COL_FRACS: readonly [number, number, number, number] = [0.38, 0.32, 0.22, 0.08];
 
-/** List layout: Name column width as a fraction of the table (status column gets 1 − this). */
+/** Default pixel widths when nothing is persisted (reference ~800px-wide table). */
+export const DEFAULT_DETAIL_COL_PX: readonly [number, number, number] = [188, 96, 96];
+
+/** Clamps for [Modified, Size, Status] in px; webview reads the same via boot (keep in sync automatically). */
+export const MIN_DETAIL_COL_PX: readonly [number, number, number] = [20, 20, 20];
+export const MAX_DETAIL_COL_PX: readonly [number, number, number] = [480, 280, 220];
+
+function clampDetailPxComponent(value: number, index: 0 | 1 | 2): number {
+  return Math.min(MAX_DETAIL_COL_PX[index], Math.max(MIN_DETAIL_COL_PX[index], Math.round(value)));
+}
+
+/**
+ * Validates and clamps persisted detail column pixel triple [Modified, Size, Status].
+ */
+export function normalizeDetailColWidthsPx(raw: unknown): [number, number, number] | null {
+  if (!Array.isArray(raw) || raw.length !== 3) {
+    return null;
+  }
+  const x = raw[0];
+  const y = raw[1];
+  const z = raw[2];
+  if (typeof x !== "number" || typeof y !== "number" || typeof z !== "number") {
+    return null;
+  }
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+    return null;
+  }
+  return [
+    clampDetailPxComponent(x, 0),
+    clampDetailPxComponent(y, 1),
+    clampDetailPxComponent(z, 2),
+  ];
+}
+
+/**
+ * One-time migration from legacy fractional widths using a reference table width (px).
+ */
+export function detailColWidthsFromLegacyFracs(
+  fracs: readonly [number, number, number, number],
+  refTableWidthPx: number
+): [number, number, number] {
+  const tw = Math.max(320, refTableWidthPx);
+  return [
+    clampDetailPxComponent(fracs[1] * tw, 0),
+    clampDetailPxComponent(fracs[2] * tw, 1),
+    clampDetailPxComponent(fracs[3] * tw, 2),
+  ];
+}
+
+/** Legacy only: old List % split; migrated into {@link WORKSPACE_DETAIL_COL_PX_KEY} index 2 when no other persisted widths. */
 export const WORKSPACE_LIST_NAME_FRAC_KEY = "explorer-enhanced.filePane.listNameColFrac";
 
 export const DEFAULT_LIST_NAME_COL_FRAC = 0.88;
@@ -124,6 +175,27 @@ export function normalizeColFracs(raw: unknown): [number, number, number, number
   return [a / sum, b / sum, c / sum, d / sum];
 }
 
+/** Workspace-backed detail widths, migrating from {@link WORKSPACE_COL_FRACS_KEY} or list Name|status % when needed. */
+export function resolvePersistedDetailColWidths(workspaceState: vscode.Memento): [number, number, number] {
+  const direct = normalizeDetailColWidthsPx(workspaceState.get(WORKSPACE_DETAIL_COL_PX_KEY));
+  if (direct !== null) {
+    return direct;
+  }
+  const hadLegacyColFracs = workspaceState.get(WORKSPACE_COL_FRACS_KEY) !== undefined;
+  const legacyFracs = normalizeColFracs(workspaceState.get(WORKSPACE_COL_FRACS_KEY));
+  const triple = detailColWidthsFromLegacyFracs(legacyFracs, 720);
+  if (!hadLegacyColFracs) {
+    const lf = workspaceState.get(WORKSPACE_LIST_NAME_FRAC_KEY);
+    if (typeof lf === "number" && Number.isFinite(lf)) {
+      const frac = Math.min(0.97, Math.max(0.5, lf));
+      const tw = 720;
+      const statusPx = clampDetailPxComponent((1 - frac) * tw, 2);
+      return [triple[0], triple[1], statusPx];
+    }
+  }
+  return triple;
+}
+
 /** Clamp List layout Name / Git split (workspace-persisted). */
 export function normalizeListNameColFrac(raw: unknown): number {
   const d = typeof raw === "number" && Number.isFinite(raw) ? raw : DEFAULT_LIST_NAME_COL_FRAC;
@@ -174,6 +246,7 @@ export function statePayloadSignature(p: {
   showPath: boolean;
   openEditorPaths: string[];
   viewLayout: ViewLayoutSetting;
+  detailColWidthsPx: readonly [number, number, number];
 }): string {
   const hash = createHash("sha256");
   const u = (s: string): void => {
@@ -192,6 +265,9 @@ export function statePayloadSignature(p: {
   );
   u("OPEN\t");
   u(JSON.stringify(p.openEditorPaths));
+  u("\n");
+  u("COL\t");
+  u(JSON.stringify(p.detailColWidthsPx));
   u("\n");
   for (const r of p.rows) {
     const pend = r.folderSizePending === true ? "p" : "";

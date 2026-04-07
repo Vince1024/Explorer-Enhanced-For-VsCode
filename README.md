@@ -23,7 +23,7 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
     </td>
     <td align="center" width="30%">
       <img src="images/Files-List-View.png" alt="Files — List layout" width="90%" /><br />
-      <sub><strong>List</strong>: compact row (name + indicators depending on options).</sub>
+      <sub><strong>List</strong>: name + Git/Problems column (width shared with Details when enabled).</sub>
     </td>
     <td align="center" width="30%">
       <img src="images/Files-Detail-View.png" alt="Files — Details layout" width="90%" /><br />
@@ -42,12 +42,14 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
 ### Folders
 
 - Workspace roots and subfolders; optional **Show files in tree** (from the view title menu or commands).
+- **Multi-root workspaces:** drag-and-drop a **workspace folder root** onto another root to reorder (same idea as the built-in Explorer); drop on empty tree area moves the folder to the **end**. Subfolders and files in the tree are not draggable.
 - Context actions: new file/folder, refresh, reveal in OS, integrated terminal, copy path, rename, delete, reveal in built-in Explorer.
 - **Folder expand behavior** (see [Settings](#settings)): you can align with the built-in Explorer so a **single click** only **selects** a folder (and drives the **Files** view), while **expand/collapse** uses the **twistie (`>`)** or a **double-click** on the folder label. This is implemented by syncing `workbench.tree.expandMode` at **workspace** scope when you choose that mode in settings (see limitations below).
 
 ### Files
 
-- Table or icon layout: sortable columns, resizable widths, optional Git status, problems counts, folder sizes, path hint, layout switcher (list / details / icons).
+- Table or icon layout: sortable columns, optional Git status, problems counts, folder sizes, path hint, layout switcher (list / details / icons).
+- **Column widths (List + Details):** **Name** uses the remaining horizontal space. **Modified**, **Size**, and the combined **Git / Problems** column use **fixed pixel** widths (drag the header separators). The Git/Problems width is **shared** between List and Details: resizing in one view applies to the other. Values are stored in workspace state under `explorer-enhanced.filePane.detailColWidthsPx` (triplet `[modifiedPx, sizePx, statusPx]`). Min/max bounds are defined once in the extension and passed into the webview at load so the UI and host validation stay aligned.
 - Git badges mirror the built-in Explorer where possible: working tree + index, merge/conflict, and **incoming (upstream)** when behind a tracked branch.
 
 ## Settings
