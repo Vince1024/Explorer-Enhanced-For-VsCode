@@ -6,28 +6,43 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
 
 ## Screenshots
 
-### Folders View
+### Full View
 
 <p align="center">
-  <img src="images/Folders-View.png" alt="Explorer Enhanced: Folders and Files (Details layout)" width="50%" />
+  <img src="images/Full-View.png" alt="Explorer Enhanced: Folders and Files (Details layout)" width="50%" />
 </p>
 <p align="center"><sub><em><strong>Details</strong> layout: Folders tree + Files table (name, modified, size). Optional <code>images/overview.png</code> can be added later for a wider marketing shot.</em></sub></p>
 
-### Files Views
+### Files Features/Options
+
+<table>
+  <tr>
+    <td align="center" width="10%">
+      <img src="images/MenuBar.png" alt="Files — Icons layout" height="90%" /><br />
+      <sub><strong>TopBar</strong>: Search (Name/File content), Navigation, Show/Hide Folders in files view, Select View and <strong>Options</strong></sub>
+    </td>
+    <td align="center" width="10%">
+      <img src="images/Options-Menu.png" alt="Files — List layout" height="90%" /><br />
+      <sub><strong>Options</strong></sub>
+    </td>
+  </tr>
+</table>
+
+### Files Views (Icons/List/Details)
 
 <table>
   <tr>
     <td align="center" width="30%">
       <img src="images/Files-Icons-View.png" alt="Files — Icons layout" width="90%" /><br />
-      <sub><strong>Icons</strong>: name, size, Git/Problems per toggles.</sub>
+      <sub><strong>Icons</strong>: name, size, Git/Problems.</sub>
     </td>
     <td align="center" width="30%">
       <img src="images/Files-List-View.png" alt="Files — List layout" width="90%" /><br />
-      <sub><strong>List</strong>: name + Git/Problems column (width shared with Details when enabled).</sub>
+      <sub><strong>List</strong>: name + Git/Problems .</sub>
     </td>
     <td align="center" width="30%">
       <img src="images/Files-Detail-View.png" alt="Files — Details layout" width="90%" /><br />
-      <sub><strong>Details</strong>: name, modified, size; Git/Problems columns per toggles, column widths.</sub>
+      <sub><strong>Details</strong>: name, modified, size, Git/Problems.</sub>
     </td>
   </tr>
 </table>
@@ -49,6 +64,9 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
 ### Files
 
 - Table or icon layout: sortable columns, optional Git status, problems counts, folder sizes, path hint, layout switcher (list / details / icons).
+- **Folder row selection:** a **single click** on a **folder** in the listing **highlights** that row and updates the **breadcrumb / path** line to that folder’s path. The file listing **stays** on the folder you had opened; **double-click** still **opens** the folder. Selection is cleared when you open another folder, click a file row, or when the active editor sync updates the path hint for a file.
+- **Filter by name:** on the **first row** of the Files pane, the search field shares a line with the view/settings **toolbar** (icons); the **path** sits on the row below and **wraps** on long paths. Filtering applies to **List**, **Details**, and **Icons** (case-insensitive substring). Matching substrings in file and folder **names** are highlighted using theme colors (`list.filterValue*`, then editor find-match / selection highlight fallbacks). The query is cleared when you open a different folder; **Esc** or the **`codicon-close`** button (visible when the field is not empty) clears the filter. The field uses **`role="searchbox"`** for accessibility (`type="text"` so the clear control renders reliably in the webview).
+- **Search in file contents:** the **`codicon-file-text`** toggle switches the same field to a **recursive text search** under the currently selected folder (debounced). The extension reads candidate files as UTF-8 with sensible exclusions and limits (see `src/filePaneContentSearch.ts`). While a search runs, you get **window progress** and a **spinner overlay** in the webview; the table lists matching files only. The choice is remembered per workspace.
 - **Column widths (List + Details):** **Name** uses the remaining horizontal space. **Modified**, **Size**, and the combined **Git / Problems** column use **fixed pixel** widths (drag the header separators). The Git/Problems width is **shared** between List and Details: resizing in one view applies to the other. Values are stored in workspace state under `explorer-enhanced.filePane.detailColWidthsPx` (triplet `[modifiedPx, sizePx, statusPx]`). Min/max bounds are defined once in the extension and passed into the webview at load so the UI and host validation stay aligned.
 - Git badges mirror the built-in Explorer where possible: working tree + index, merge/conflict, and **incoming (upstream)** when behind a tracked branch.
 

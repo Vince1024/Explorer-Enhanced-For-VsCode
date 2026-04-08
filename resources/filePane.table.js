@@ -7,10 +7,19 @@
   let getShowGitStatus;
   let getShowProblemsInFiles;
   let getShowFolderSize;
+  /** @type {((fsPath: string) => void) | null} */
+  let onFolderRowSingleClick = null;
+  /** @type {(() => void) | null} */
+  let onClearFolderListSelection = null;
 
   const Format = globalThis.FilePaneFormat;
   if (!Format || typeof Format.fmtSizeBytes !== 'function') {
     throw new Error('explorer-enhanced: FilePaneFormat missing (load filePane.format.js before filePane.table.js)');
+  }
+
+  const FilterHighlight = globalThis.FilePaneFilterHighlight;
+  if (!FilterHighlight || typeof FilterHighlight.appendNameWithFilterHighlights !== 'function') {
+    throw new Error('explorer-enhanced: FilePaneFilterHighlight missing (load filePane.filterHighlight.js before filePane.table.js)');
   }
 
   const GitBadges = globalThis.FilePaneGitBadges;
@@ -26,8 +35,15 @@
 
   let sortState = { key: 'name', dir: 'asc' };
   let rawRows = [];
+  /** Lowercase trimmed query; empty = no filter. */
+  let nameFilterNorm = '';
   /** @type {((sorted: unknown[]) => void) | null} */
   let afterSortRender = null;
+
+  function normalizeNameFilterQuery(q) {
+    if (typeof q !== 'string') return '';
+    return q.trim().toLocaleLowerCase();
+  }
 
   function isIconLayout() {
     return document.body.classList.contains('explorer-enhanced-layout-icons');
@@ -218,7 +234,7 @@
       iconWrap.appendChild(Icons.svgIcon(ic.d, ic.fill));
       const nameSpan = document.createElement('span');
       nameSpan.className = 'file-name';
-      nameSpan.textContent = r.name;
+      FilterHighlight.appendNameWithFilterHighlights(nameSpan, r.name, nameFilterNorm);
       nameRow.appendChild(iconWrap);
       nameRow.appendChild(nameSpan);
       tdName.appendChild(nameRow);
@@ -318,7 +334,15 @@
       tr.appendChild(tdSize);
       tr.appendChild(tdStatus);
       tr.addEventListener('click', () => {
-        if (r.kind === 'folder') return;
+        if (r.kind === 'folder') {
+          if (typeof onFolderRowSingleClick === 'function') {
+            onFolderRowSingleClick(r.path);
+          }
+          return;
+        }
+        if (typeof onClearFolderListSelection === 'function') {
+          onClearFolderListSelection();
+        }
         vscodeApi.postMessage({ type: 'openFile', path: r.path, preview: true });
       });
       tr.addEventListener('dblclick', (e) => {
@@ -353,7 +377,11 @@
 
   function applySortAndRender() {
     const mult = sortState.dir === 'asc' ? 1 : -1;
-    const sorted = rawRows.slice().sort((a, b) => mult * compareRows(a, b));
+    const pool =
+      nameFilterNorm.length > 0
+        ? rawRows.filter((r) => typeof r.name === 'string' && r.name.toLocaleLowerCase().includes(nameFilterNorm))
+        : rawRows.slice();
+    const sorted = pool.sort((a, b) => mult * compareRows(a, b));
     if (isIconLayout()) {
       bodyEl.replaceChildren();
     } else {
@@ -394,7 +422,7 @@
     });
   }
 
-  /** @param {{ vscode: object; bodyEl: HTMLElement; gridEl: HTMLElement; gridHeadEl: HTMLElement; getShowGitStatus: () => boolean; getShowProblemsInFiles: () => boolean; getShowFolderSize?: () => boolean; dateTimeCustomPatternBoot: unknown }} opts */
+  /** @param {{ vscode: object; bodyEl: HTMLElement; gridEl: HTMLElement; gridHeadEl: HTMLElement; getShowGitStatus: () => boolean; getShowProblemsInFiles: () => boolean; getShowFolderSize?: () => boolean; dateTimeCustomPatternBoot: unknown; onFolderRowSingleClick?: (fsPath: string) => void; onClearFolderListSelection?: () => void }} opts */
   function init(opts) {
     vscodeApi = opts.vscode;
     bodyEl = opts.bodyEl;
@@ -403,6 +431,8 @@
     getShowGitStatus = opts.getShowGitStatus;
     getShowProblemsInFiles = opts.getShowProblemsInFiles;
     getShowFolderSize = typeof opts.getShowFolderSize === 'function' ? opts.getShowFolderSize : () => false;
+    onFolderRowSingleClick = typeof opts.onFolderRowSingleClick === 'function' ? opts.onFolderRowSingleClick : null;
+    onClearFolderListSelection = typeof opts.onClearFolderListSelection === 'function' ? opts.onClearFolderListSelection : null;
     dateTimeCustomPattern =
       typeof opts.dateTimeCustomPatternBoot === 'string' ? opts.dateTimeCustomPatternBoot : '';
     sortState = loadSortState();
@@ -421,6 +451,21 @@
     rawRows = Array.isArray(rows) ? rows.slice() : [];
   }
 
+  /**
+   * @param {string} q
+   * @param {{ skipRender?: boolean }} [opts]
+   */
+  function setNameFilter(q, opts) {
+    nameFilterNorm = normalizeNameFilterQuery(q);
+    if (!opts || !opts.skipRender) {
+      applySortAndRender();
+    }
+  }
+
+  function getNameFilterNorm() {
+    return nameFilterNorm;
+  }
+
   globalThis.FilePaneTable = {
     init,
     DATE_FORMATS,
@@ -430,5 +475,7 @@
     applySortAndRender,
     setAfterSortRender,
     applyOpenEditorHighlights,
+    setNameFilter,
+    getNameFilterNorm,
   };
 })();

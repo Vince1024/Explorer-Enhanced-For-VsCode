@@ -103,6 +103,13 @@ body.explorer-enhanced-layout-icons .files-icon-tile.editor-active:hover {
 body.explorer-enhanced-layout-icons .files-icon-tile.editor-active .files-icon-tile-label {
   color: var(--vscode-list-activeSelectionForeground);
 }
+body.explorer-enhanced-layout-icons .files-icon-tile.editor-active .explorer-enhanced-name-filter-match {
+  background-color: var(
+    --vscode-list-filterValueBackground,
+    var(--vscode-editor-findMatchHighlightBackground, var(--vscode-editor-selectionHighlightBackground))
+  );
+  color: var(--vscode-list-filterValueForeground, var(--vscode-list-activeSelectionForeground));
+}
 body.explorer-enhanced-layout-icons .files-icon-tile.editor-active .git-letter {
   color: var(--vscode-list-activeSelectionForeground);
 }

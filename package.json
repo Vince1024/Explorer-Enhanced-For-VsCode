@@ -1,7 +1,7 @@
 {
   "name": "explorer-enhanced",
   "displayName": "Explorer Enhanced",
-  "description": "Folder-first navigation with a Files webview (table: name, modified, size; codicon-based toolbar).",
+  "description": "Folder-first navigation with a Files webview (table: name, modified, size; instant name filter; codicon toolbar).",
   "icon": "images/explorer-enhanced.png",
   "version": "1.0.0",
   "publisher": "Vincent1024",

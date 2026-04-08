@@ -5,6 +5,10 @@
   let getShowGitStatus;
   let getShowProblemsInFiles;
   let getShowFolderSize;
+  /** @type {((fsPath: string) => void) | null} */
+  let onFolderRowSingleClick = null;
+  /** @type {(() => void) | null} */
+  let onClearFolderListSelection = null;
 
   const Format = globalThis.FilePaneFormat;
   if (!Format || typeof Format.fmtSizeBytes !== 'function') {
@@ -14,6 +18,16 @@
   const GitBadges = globalThis.FilePaneGitBadges;
   if (!GitBadges || typeof GitBadges.incomingPairElement !== 'function') {
     throw new Error('explorer-enhanced: FilePaneGitBadges missing (load filePane.gitBadges.js before filePane.iconGrid.js)');
+  }
+
+  const FilterHighlight = globalThis.FilePaneFilterHighlight;
+  if (!FilterHighlight || typeof FilterHighlight.appendNameWithFilterHighlights !== 'function') {
+    throw new Error('explorer-enhanced: FilePaneFilterHighlight missing (load before filePane.iconGrid.js)');
+  }
+
+  const FilePaneTableRef = globalThis.FilePaneTable;
+  if (!FilePaneTableRef || typeof FilePaneTableRef.getNameFilterNorm !== 'function') {
+    throw new Error('explorer-enhanced: FilePaneTable missing (load before filePane.iconGrid.js)');
   }
 
   function fmtSizeBytes(n) {
@@ -125,7 +139,7 @@
 
       const label = document.createElement('div');
       label.className = 'files-icon-tile-label';
-      label.textContent = r.name;
+      FilterHighlight.appendNameWithFilterHighlights(label, r.name, FilePaneTableRef.getNameFilterNorm());
 
       tile.appendChild(iconWrap);
       if (badgeRow.childNodes.length) {
@@ -148,7 +162,15 @@
       }
 
       tile.addEventListener('click', () => {
-        if (r.kind === 'folder') return;
+        if (r.kind === 'folder') {
+          if (typeof onFolderRowSingleClick === 'function') {
+            onFolderRowSingleClick(r.path);
+          }
+          return;
+        }
+        if (typeof onClearFolderListSelection === 'function') {
+          onClearFolderListSelection();
+        }
         vscodeApi.postMessage({ type: 'openFile', path: r.path, preview: true });
       });
       tile.addEventListener('dblclick', (e) => {
@@ -184,13 +206,15 @@
     }
   }
 
-  /** @param {{ vscode: object; paneEl: HTMLElement | null; getShowGitStatus: () => boolean; getShowProblemsInFiles: () => boolean; getShowFolderSize?: () => boolean }} opts */
+  /** @param {{ vscode: object; paneEl: HTMLElement | null; getShowGitStatus: () => boolean; getShowProblemsInFiles: () => boolean; getShowFolderSize?: () => boolean; onFolderRowSingleClick?: (fsPath: string) => void; onClearFolderListSelection?: () => void }} opts */
   function init(opts) {
     vscodeApi = opts.vscode;
     paneEl = opts.paneEl;
     getShowGitStatus = opts.getShowGitStatus;
     getShowProblemsInFiles = opts.getShowProblemsInFiles;
     getShowFolderSize = typeof opts.getShowFolderSize === 'function' ? opts.getShowFolderSize : () => false;
+    onFolderRowSingleClick = typeof opts.onFolderRowSingleClick === 'function' ? opts.onFolderRowSingleClick : null;
+    onClearFolderListSelection = typeof opts.onClearFolderListSelection === 'function' ? opts.onClearFolderListSelection : null;
   }
 
   globalThis.FilePaneIconGrid = { init, render, clear, applyOpenEditorHighlights };

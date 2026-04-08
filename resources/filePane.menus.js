@@ -4,6 +4,7 @@
   let applyColWidthsFn;
 
   const foldersToggleBtn = document.getElementById('foldersToggleBtn');
+  const filesContentSearchToggleBtn = document.getElementById('filesContentSearchToggleBtn');
   const viewsMenuBtn = document.getElementById('viewsMenuBtn');
   const viewsMenuEl = document.getElementById('viewsMenu');
   const settingsMenuBtn = document.getElementById('settingsMenuBtn');
@@ -102,6 +103,11 @@
     if (icon) {
       icon.className = 'codicon folders-toggle-icon ' + (on ? 'codicon-folder' : 'codicon-file');
     }
+  }
+
+  function syncFilesContentSearchToggle(on) {
+    if (!filesContentSearchToggleBtn) return;
+    filesContentSearchToggleBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
   }
 
   function syncViewMenuActive(layout) {
@@ -335,6 +341,17 @@
       });
     }
 
+    if (filesContentSearchToggleBtn) {
+      filesContentSearchToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideTopbarDropdowns();
+        const next = filesContentSearchToggleBtn.getAttribute('aria-pressed') !== 'true';
+        vscodeApi.postMessage({ type: 'setFileContentSearch', value: next });
+        const fi = document.getElementById('filesFilterInput');
+        vscodeApi.postMessage({ type: 'contentSearchQuery', value: fi && typeof fi.value === 'string' ? fi.value : '' });
+      });
+    }
+
     if (viewsMenuBtn) {
       viewsMenuBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -439,6 +456,7 @@
   globalThis.FilePaneMenus = {
     init,
     syncFoldersToggleUi,
+    syncFilesContentSearchToggle,
     syncViewMenuActive,
     syncSettingsGitToggle,
     syncSettingsProblemsToggle,

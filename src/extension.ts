@@ -165,11 +165,13 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         await treeView.reveal(item, { select: true, focus: false, expand: true });
       } catch {
-        void p.showFolder(folderUri, true);
+        /* reveal peut échouer (hors arbre) ; showFolder ci-dessous rafraîchit quand même le volet Files */
       }
-    } else {
-      void p.showFolder(folderUri, true);
     }
+    /* Toujours aligner le volet Files sur ce dossier : ne pas dépendre seul de onDidChangeSelection
+       (manquant ou retardé après reveal → chemin / listing obsolètes). Après reveal, pas de showFolder
+       avant pour éviter un re-render du webview au milieu d’un double-clic. */
+    void p.showFolder(folderUri, true);
   };
 
   filePaneHost.current = new FilePaneViewProvider(

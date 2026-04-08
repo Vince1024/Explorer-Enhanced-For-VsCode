@@ -7,6 +7,7 @@ import type { DateTimeFormatSetting, ViewLayoutSetting } from "./filePaneSetting
 /** Messages from the Files webview (`postMessage`). */
 export interface FilePaneWebviewInboundMessage {
   type?: string;
+  /** Folder fs path; used by `openFile`, `openFolder`, `selectFolderRow`, context menu, etc. */
   path?: string;
   action?: string;
   preview?: boolean;
@@ -96,6 +97,7 @@ export const FILE_PANE_WEBVIEW_JS_ICON_GRID = "filePane.iconGrid.js";
 export const FILE_PANE_WEBVIEW_JS_COLUMNS = "filePane.columns.js";
 export const FILE_PANE_WEBVIEW_JS_MENUS = "filePane.menus.js";
 export const FILE_PANE_WEBVIEW_JS_FORMAT = "filePane.format.js";
+export const FILE_PANE_WEBVIEW_JS_FILTER_HIGHLIGHT = "filePane.filterHighlight.js";
 export const FILE_PANE_WEBVIEW_JS_GIT_BADGES = "filePane.gitBadges.js";
 export const FILE_PANE_WEBVIEW_JS_TABLE = "filePane.table.js";
 export const FILE_PANE_WEBVIEW_SHELL = "filePane.shell.html";
@@ -107,6 +109,63 @@ export const FILES_NAME_COLLATOR = new Intl.Collator(undefined, LOCALE_COMPARE_B
 
 export function filesListingCacheKey(folderUri: vscode.Uri, showFoldersInList: boolean): string {
   return `${path.normalize(folderUri.fsPath)}\n${showFoldersInList ? "1" : "0"}`;
+}
+
+/** One segment of the Files pane breadcrumb (absolute normalized fs path). */
+export type FolderBreadcrumbSegment = { label: string; path: string };
+
+/**
+ * Builds clickable breadcrumb segments from a folder fs path (host-side, correct for OS / drives / UNC).
+ */
+export function buildFolderBreadcrumbSegments(folderFsPath: string): FolderBreadcrumbSegment[] {
+  const normalized = path.normalize(folderFsPath.trim());
+  if (!normalized) {
+    return [];
+  }
+
+  const parsed = path.parse(normalized);
+  const root = parsed.root;
+  const rest =
+    root && normalized.startsWith(root) ? normalized.slice(root.length) : normalized;
+  const parts = rest.split(path.sep).filter((p) => p.length > 0);
+
+  const isWindowsDriveRoot = root !== "" && /^[A-Za-z]:\\$/.test(root);
+
+  if (parts.length === 0) {
+    if (isWindowsDriveRoot) {
+      return [{ label: root.slice(0, 2), path: normalized }];
+    }
+    const label = (root ? root : normalized).replace(/[/\\]+$/, "") || normalized;
+    return [{ label, path: normalized }];
+  }
+
+  const out: FolderBreadcrumbSegment[] = [];
+  if (isWindowsDriveRoot) {
+    out.push({ label: root.slice(0, 2), path: path.normalize(root) });
+  }
+
+  for (let i = 0; i < parts.length; i++) {
+    const acc =
+      i === 0 && root
+        ? path.join(root, parts[i])
+        : i === 0
+          ? parts[i]
+          : path.join(out[out.length - 1].path, parts[i]);
+    out.push({ label: parts[i].trim(), path: path.normalize(acc) });
+  }
+  return out;
+}
+
+/**
+ * Whether `targetNorm` is the same directory as `parentNorm` or a strict descendant,
+ * using normalized fs paths (e.g. after `path.normalize`).
+ */
+export function isNormalizedFsPathDescendantOrSelf(parentNorm: string, targetNorm: string): boolean {
+  if (targetNorm === parentNorm) {
+    return true;
+  }
+  const rel = path.relative(parentNorm, targetNorm);
+  return !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
 export function normalizeColFracs(raw: unknown): [number, number, number, number] {
@@ -244,6 +303,11 @@ export function statePayloadSignature(p: {
   selectActiveFile: boolean;
   highlightOpenFiles: boolean;
   showPath: boolean;
+  fileContentSearch: boolean;
+  contentSearchActive: boolean;
+  folderNavCanGoBack: boolean;
+  folderNavCanGoForward: boolean;
+  folderBreadcrumb: readonly FolderBreadcrumbSegment[];
   openEditorPaths: string[];
   viewLayout: ViewLayoutSetting;
   detailColWidthsPx: readonly [number, number, number];
@@ -261,8 +325,11 @@ export function statePayloadSignature(p: {
   u(p.dateTimeCustomPattern);
   u("\n");
   u(
-    `${p.showGitStatus ? "1" : "0"}${p.showProblemsInFiles ? "1" : "0"}${p.showFoldersInList ? "1" : "0"}${p.showFilesRowLines ? "1" : "0"}${p.showFilesColumnLines ? "1" : "0"}${p.showFolderSize ? "1" : "0"}${p.selectActiveFile ? "1" : "0"}${p.highlightOpenFiles ? "1" : "0"}${p.showPath ? "1" : "0"}${p.viewLayout}\n`
+    `${p.showGitStatus ? "1" : "0"}${p.showProblemsInFiles ? "1" : "0"}${p.showFoldersInList ? "1" : "0"}${p.showFilesRowLines ? "1" : "0"}${p.showFilesColumnLines ? "1" : "0"}${p.showFolderSize ? "1" : "0"}${p.selectActiveFile ? "1" : "0"}${p.highlightOpenFiles ? "1" : "0"}${p.showPath ? "1" : "0"}${p.fileContentSearch ? "1" : "0"}${p.contentSearchActive ? "1" : "0"}${p.folderNavCanGoBack ? "1" : "0"}${p.folderNavCanGoForward ? "1" : "0"}${p.viewLayout}\n`
   );
+  u("BREADCRUMB\t");
+  u(JSON.stringify(p.folderBreadcrumb));
+  u("\n");
   u("OPEN\t");
   u(JSON.stringify(p.openEditorPaths));
   u("\n");

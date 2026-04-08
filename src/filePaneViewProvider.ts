@@ -25,6 +25,7 @@ import {
   setHighlightOpenFiles,
   setSelectActiveFile,
   setShowPath,
+  setFileContentSearch,
   type FilesSettingsSnapshot,
   type DateTimeFormatSetting,
   type ViewLayoutSetting,
@@ -35,6 +36,10 @@ import {
   normalizeProblemsPath,
   type FileProblemsCount,
 } from "./filePaneDiagnostics";
+import {
+  collectUrisWithTextUnderFolder,
+  displayNameRelativeToFolder,
+} from "./filePaneContentSearch";
 import { gitIncomingToRowPayload, type FileViewRowPayload, type GitFileStatusService } from "./gitFileStatusService";
 import {
   buildFilePaneWebviewCsp,
@@ -47,12 +52,15 @@ import {
   FILE_PANE_WEBVIEW_JS,
   FILE_PANE_WEBVIEW_JS_COLUMNS,
   FILE_PANE_WEBVIEW_JS_FORMAT,
+  FILE_PANE_WEBVIEW_JS_FILTER_HIGHLIGHT,
   FILE_PANE_WEBVIEW_JS_GIT_BADGES,
   FILE_PANE_WEBVIEW_JS_ICON_GRID,
   FILE_PANE_WEBVIEW_JS_ICONS,
   FILE_PANE_WEBVIEW_JS_MENUS,
   FILE_PANE_WEBVIEW_JS_TABLE,
   FILE_PANE_WEBVIEW_SHELL,
+  buildFolderBreadcrumbSegments,
+  isNormalizedFsPathDescendantOrSelf,
   filesListingCacheKey,
   FILES_NAME_COLLATOR,
   FILES_VIEW_BASE_TITLE,
@@ -68,6 +76,7 @@ import {
   svgExplorerViewList,
   WORKSPACE_DETAIL_COL_PX_KEY,
   type FilePaneWebviewInboundMessage,
+  type FolderBreadcrumbSegment,
 } from "./filePaneWebviewSupport";
 
 /** Coalesce rapid re-list of the same folder (Git + FS watcher + workspace) to avoid webview tbody flicker. */
@@ -118,6 +127,13 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   /** Avoids re-reading `filePane.shell.html` on every `resolveWebviewView` (F5 reload clears this cache). */
   private _cachedWebviewShellPath: string | undefined;
   private _cachedWebviewShellTemplate: string | undefined;
+
+  /** Dernière requête « recherche dans les fichiers » (champ filtre, mode contenu). */
+  private _contentSearchQuery = "";
+
+  /** Historique de navigation dossier (chemins normalisés) pour Précédent / Suivant dans la webview. */
+  private _folderHist: string[] = [];
+  private _folderHistPos = -1;
 
   /** Cache key + sorted entries for the current folder; avoids `readDirectory` when Git or mtime/size refresh only. */
   private _filesListingCacheKey: string | undefined;
@@ -457,6 +473,11 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       selectActiveFile: boolean;
       highlightOpenFiles: boolean;
       showPath: boolean;
+      fileContentSearch: boolean;
+      contentSearchActive: boolean;
+      folderNavCanGoBack: boolean;
+      folderNavCanGoForward: boolean;
+      folderBreadcrumb: FolderBreadcrumbSegment[];
       openEditorPaths: string[];
       viewLayout: ViewLayoutSetting;
       detailColWidthsPx: readonly [number, number, number];
@@ -627,6 +648,85 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       }
     }
     return row;
+  }
+
+  private async _buildContentSearchRows(
+    folderUri: vscode.Uri,
+    query: string,
+    showGitStatus: boolean,
+    showProblemsInFiles: boolean,
+    token: vscode.CancellationToken
+  ): Promise<FileViewRowPayload[]> {
+    const uris = await collectUrisWithTextUnderFolder(folderUri, query, token);
+    const problemsByPath =
+      showProblemsInFiles && uris.length > 0
+        ? buildProblemsCountForFilePaths(uris.map((u) => u.fsPath))
+        : undefined;
+
+    return mapPool(uris, FILE_STAT_CONCURRENCY, async (uri) => {
+      try {
+        const st = await vscode.workspace.fs.stat(uri);
+        const displayName = displayNameRelativeToFolder(folderUri, uri);
+        return this._entryRowPayload(
+          displayName,
+          uri,
+          "file",
+          st.mtime,
+          st.size,
+          showGitStatus,
+          showProblemsInFiles,
+          problemsByPath
+        );
+      } catch {
+        return this._entryRowPayload(
+          path.basename(uri.fsPath),
+          uri,
+          "file",
+          0,
+          0,
+          showGitStatus,
+          showProblemsInFiles,
+          problemsByPath
+        );
+      }
+    });
+  }
+
+  private async _runContentSearchWithUi(
+    folderUri: vscode.Uri,
+    query: string,
+    showGitStatus: boolean,
+    showProblemsInFiles: boolean
+  ): Promise<FileViewRowPayload[]> {
+    const view = this._view;
+    return vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Window,
+        title: "Explorer Enhanced",
+        cancellable: true,
+      },
+      async (progress, token) => {
+        if (view) {
+          void view.webview.postMessage({ type: "contentSearchProgress", running: true });
+        }
+        try {
+          progress.report({ message: "Recherche dans les fichiers…" });
+          const rows = await this._buildContentSearchRows(
+            folderUri,
+            query,
+            showGitStatus,
+            showProblemsInFiles,
+            token
+          );
+          progress.report({ message: `${rows.length} fichier(s)` });
+          return rows;
+        } finally {
+          if (view) {
+            void view.webview.postMessage({ type: "contentSearchProgress", running: false });
+          }
+        }
+      }
+    );
   }
 
   /** Refresh Git decorations from cached rows only (no `stat` / `readDirectory`). */
@@ -818,7 +918,13 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     settings: FilesSettingsSnapshot,
     viewLayout: ViewLayoutSetting,
     /** One `collectOpenWorkspaceFilePaths` pass shared by both payloads in the same flush. */
-    openEditorPathsResolved: string[]
+    openEditorPathsResolved: string[],
+    contentSearchActive: boolean,
+    folderNav: {
+      folderNavCanGoBack: boolean;
+      folderNavCanGoForward: boolean;
+      folderBreadcrumb: FolderBreadcrumbSegment[];
+    }
   ): {
     folder: string;
     rows: FileViewRowPayload[];
@@ -834,6 +940,11 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     selectActiveFile: boolean;
     highlightOpenFiles: boolean;
     showPath: boolean;
+    fileContentSearch: boolean;
+    contentSearchActive: boolean;
+    folderNavCanGoBack: boolean;
+    folderNavCanGoForward: boolean;
+    folderBreadcrumb: FolderBreadcrumbSegment[];
     openEditorPaths: string[];
     viewLayout: ViewLayoutSetting;
     detailColWidthsPx: readonly [number, number, number];
@@ -854,6 +965,11 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       selectActiveFile: settings.selectActiveFile,
       highlightOpenFiles,
       showPath: settings.showPath,
+      fileContentSearch: settings.fileContentSearch,
+      contentSearchActive,
+      folderNavCanGoBack: folderNav.folderNavCanGoBack,
+      folderNavCanGoForward: folderNav.folderNavCanGoForward,
+      folderBreadcrumb: folderNav.folderBreadcrumb,
       openEditorPaths: openEditorPathsResolved,
       viewLayout,
       detailColWidthsPx: resolvePersistedDetailColWidths(this._context.workspaceState),
@@ -955,18 +1071,90 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private _folderNavForState(folderFsPath: string): {
+    folderNavCanGoBack: boolean;
+    folderNavCanGoForward: boolean;
+    folderBreadcrumb: FolderBreadcrumbSegment[];
+  } {
+    return {
+      folderNavCanGoBack: this._folderHistPos > 0,
+      folderNavCanGoForward:
+        this._folderHistPos >= 0 && this._folderHistPos < this._folderHist.length - 1,
+      folderBreadcrumb: folderFsPath ? buildFolderBreadcrumbSegments(folderFsPath) : [],
+    };
+  }
+
+  /**
+   * Met à jour l’historique avant d’afficher un nouveau dossier (sauf navigation Précédent / Suivant).
+   * Réutilise une entrée existante si l’utilisateur sélectionne un dossier déjà dans l’historique (ex. arbre).
+   */
+  private _applyFolderHistoryBeforeShow(folderUri: vscode.Uri | undefined, historyNav: boolean): void {
+    if (historyNav) {
+      return;
+    }
+    const next = folderUri ? path.normalize(folderUri.fsPath) : "";
+    const prev = this._lastFolderUri ? path.normalize(this._lastFolderUri.fsPath) : "";
+
+    if (!next) {
+      this._folderHist = [];
+      this._folderHistPos = -1;
+      return;
+    }
+    if (next === prev) {
+      return;
+    }
+
+    const i = this._folderHist.lastIndexOf(next);
+    if (i !== -1) {
+      this._folderHistPos = i;
+      return;
+    }
+    this._folderHist = this._folderHist.slice(0, this._folderHistPos + 1);
+    this._folderHist.push(next);
+    this._folderHistPos = this._folderHist.length - 1;
+  }
+
+  private _goFolderHistoryBack(): void {
+    if (this._folderHistPos <= 0) {
+      return;
+    }
+    this._folderHistPos--;
+    const target = vscode.Uri.file(this._folderHist[this._folderHistPos]);
+    void this._applyHistoryFolderAndSyncTree(target);
+  }
+
+  private _goFolderHistoryForward(): void {
+    if (this._folderHistPos < 0 || this._folderHistPos >= this._folderHist.length - 1) {
+      return;
+    }
+    this._folderHistPos++;
+    const target = vscode.Uri.file(this._folderHist[this._folderHistPos]);
+    void this._applyHistoryFolderAndSyncTree(target);
+  }
+
+  private async _applyHistoryFolderAndSyncTree(target: vscode.Uri): Promise<void> {
+    await this.showFolder(target, true, { historyNav: true });
+    await this._onNavigateToFolder(target);
+  }
+
   /**
    * Shows files for `folderUri`. Changing folder updates immediately; refreshing the same folder
    * is debounced so Git/FS events do not blank the webview repeatedly.
    * @param forceImmediate Skip debounce (e.g. user Refresh, first webview attach with pending folder).
    */
-  async showFolder(folderUri: vscode.Uri | undefined, forceImmediate = false): Promise<void> {
+  async showFolder(
+    folderUri: vscode.Uri | undefined,
+    forceImmediate = false,
+    options?: { historyNav?: boolean }
+  ): Promise<void> {
     const view = this._view;
     const nextKey = this._normalizeFolderKey(folderUri);
     const prevKey = this._normalizeFolderKey(this._lastFolderUri);
     const folderChanged = nextKey !== prevKey;
     if (folderChanged) {
+      this._applyFolderHistoryBeforeShow(folderUri, options?.historyNav === true);
       this._invalidateFilesListingCache();
+      this._contentSearchQuery = "";
     }
 
     this._lastFolderUri = folderUri;
@@ -1022,7 +1210,9 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         revealOsTitle,
         settings,
         viewLayout,
-        openEditorPathsResolved
+        openEditorPathsResolved,
+        false,
+        this._folderNavForState("")
       );
       this._postFilePaneStateIfChanged(view, emptyPayload, null);
       this._syncFolderWatcher(undefined);
@@ -1031,15 +1221,22 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     }
 
     const listingKey = filesListingCacheKey(folderUri, showFoldersInList);
+    const qTrim = this._contentSearchQuery.trim();
+    const contentSearchOn = settings.fileContentSearch && qTrim.length > 0;
+    const contentListingKey = `content\t${listingKey}\t${qTrim}`;
+    const contentCacheActive = this._rowCacheListingKey?.startsWith("content\t") === true;
 
-    if (
+    const gitOnlyEligible =
       incomingRefreshMode === "git" &&
       showGitStatus &&
-      this._rowCacheListingKey === listingKey &&
-      this._filesListingCacheKey === listingKey &&
-      this._rowCachePayloads !== undefined
-    ) {
-      const newRows = this._rowCachePayloads.map((r) => this._rowWithFreshGit(r));
+      this._rowCachePayloads !== undefined &&
+      ((contentCacheActive && this._rowCacheListingKey === contentListingKey) ||
+        (!contentCacheActive &&
+          this._rowCacheListingKey === listingKey &&
+          this._filesListingCacheKey === listingKey));
+
+    if (gitOnlyEligible) {
+      const newRows = this._rowCachePayloads!.map((r) => this._rowWithFreshGit(r));
       this._rowCachePayloads = newRows;
       const filledPayload = this._buildStatePayload(
         folderUri.fsPath,
@@ -1047,7 +1244,9 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         revealOsTitle,
         settings,
         viewLayout,
-        openEditorPathsResolved
+        openEditorPathsResolved,
+        contentCacheActive,
+        this._folderNavForState(folderUri.fsPath)
       );
       let fileRowCount = 0;
       let folderRowCount = 0;
@@ -1068,19 +1267,47 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    const folderKeyAtStart = this._normalizeFolderKey(folderUri);
+
     let rows: FileViewRowPayload[] = [];
-    try {
-      rows = await this._buildRowsForFolder(
-        folderUri,
-        showFoldersInList,
-        showGitStatus,
-        showProblemsInFiles,
-        showFolderSize
-      );
-    } catch {
-      rows = [];
-      this._rowCacheListingKey = undefined;
-      this._rowCachePayloads = undefined;
+    let contentSearchActive = false;
+
+    if (contentSearchOn) {
+      try {
+        rows = await this._runContentSearchWithUi(
+          folderUri,
+          qTrim,
+          showGitStatus,
+          showProblemsInFiles
+        );
+        contentSearchActive = true;
+      } catch {
+        rows = [];
+      }
+      if (this._normalizeFolderKey(this._lastFolderUri) !== folderKeyAtStart) {
+        return;
+      }
+      this._rowCacheListingKey = contentListingKey;
+      this._rowCachePayloads = rows;
+    } else {
+      try {
+        rows = await this._buildRowsForFolder(
+          folderUri,
+          showFoldersInList,
+          showGitStatus,
+          showProblemsInFiles,
+          showFolderSize
+        );
+      } catch {
+        rows = [];
+        this._rowCacheListingKey = undefined;
+        this._rowCachePayloads = undefined;
+      }
+      if (this._normalizeFolderKey(this._lastFolderUri) !== folderKeyAtStart) {
+        return;
+      }
+      this._rowCacheListingKey = listingKey;
+      this._rowCachePayloads = rows;
     }
 
     const filledPayload = this._buildStatePayload(
@@ -1089,7 +1316,9 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       revealOsTitle,
       settings,
       viewLayout,
-      openEditorPathsResolved
+      openEditorPathsResolved,
+      contentSearchActive,
+      this._folderNavForState(folderUri.fsPath)
     );
     let fileRowCount = 0;
     let folderRowCount = 0;
@@ -1103,11 +1332,11 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     this._postFilePaneStateIfChanged(view, filledPayload, {
       fileCount: fileRowCount,
       folderCount: folderRowCount,
-      showFoldersInList,
+      showFoldersInList: contentSearchActive ? false : showFoldersInList,
     });
-    this._rowCacheListingKey = listingKey;
-    this._rowCachePayloads = rows;
-    this._queueFolderSizeScan(folderUri, listingKey, rows, showFolderSize);
+    if (!contentSearchOn) {
+      this._queueFolderSizeScan(folderUri, listingKey, rows, showFolderSize);
+    }
     this._syncFolderWatcher(folderUri);
     this._postEditorSelectionToWebview();
   }
@@ -1135,6 +1364,19 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         this._invalidateFilesListingCache();
         this._requestRefreshCurrentFolder();
       });
+      return;
+    }
+    if (msg?.type === "setFileContentSearch" && typeof msg.value === "boolean") {
+      void setFileContentSearch(this._context.workspaceState, msg.value).then(() => {
+        this._invalidateFilesListingCache();
+        this._requestRefreshCurrentFolder();
+      });
+      return;
+    }
+    if (msg?.type === "contentSearchQuery" && typeof msg.value === "string") {
+      this._contentSearchQuery = msg.value.length > 500 ? msg.value.slice(0, 500) : msg.value;
+      this._invalidateFilesListingCache();
+      this._requestRefreshCurrentFolder();
       return;
     }
     if (msg?.type === "setShowGitStatus" && typeof msg.value === "boolean") {
@@ -1191,6 +1433,29 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       });
       return;
     }
+    if (msg?.type === "folderHistoryBack") {
+      this._goFolderHistoryBack();
+      return;
+    }
+    if (msg?.type === "folderHistoryForward") {
+      this._goFolderHistoryForward();
+      return;
+    }
+    if (msg?.type === "selectFolderRow" && typeof msg.path === "string" && msg.path.length > 0) {
+      const displayFolder = this._lastFolderUri;
+      const wv = this._view?.webview;
+      if (!displayFolder || !wv) {
+        return;
+      }
+      const disp = path.normalize(displayFolder.fsPath);
+      const target = path.normalize(msg.path);
+      if (!isNormalizedFsPathDescendantOrSelf(disp, target)) {
+        return;
+      }
+      const crumbs = buildFolderBreadcrumbSegments(target);
+      void wv.postMessage({ type: "folderRowSelect", path: target, folderBreadcrumb: crumbs });
+      return;
+    }
     if (msg?.type === "openFolder" && msg.path) {
       void this._onNavigateToFolder(vscode.Uri.file(msg.path));
       return;
@@ -1221,6 +1486,11 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     const filePaneJsColumnsUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_COLUMNS);
     const filePaneJsMenusUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_MENUS);
     const filePaneJsFormatUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_FORMAT);
+    const filePaneJsFilterHighlightUri = this._getResourceWebviewUri(
+      webview,
+      FILE_PANE_WEBVIEW_DIR,
+      FILE_PANE_WEBVIEW_JS_FILTER_HIGHLIGHT
+    );
     const filePaneJsGitBadgesUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_GIT_BADGES);
     const filePaneJsTableUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_TABLE);
     const filePaneJsIconGridUri = this._getResourceWebviewUri(webview, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_JS_ICON_GRID);
@@ -1234,6 +1504,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       defaultDetailColWidthsPx: [...DEFAULT_DETAIL_COL_PX],
       detailColMinPx: [...MIN_DETAIL_COL_PX],
       detailColMaxPx: [...MAX_DETAIL_COL_PX],
+      /** OS path separator for breadcrumb display (`\\` on Windows, `/` on POSIX). */
+      fsPathSep: path.sep,
       dateTimeCustomPattern: DEFAULT_DATE_TIME_CUSTOM_PATTERN,
       showGitStatus: filesSnap.showGitStatus,
       showProblemsInFiles: filesSnap.showProblemsInFiles,
@@ -1243,6 +1515,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       selectActiveFile: filesSnap.selectActiveFile,
       highlightOpenFiles: filesSnap.highlightOpenFiles,
       showPath: filesSnap.showPath,
+      fileContentSearch: filesSnap.fileContentSearch,
       openEditorPaths: filesSnap.highlightOpenFiles ? collectOpenWorkspaceFilePaths() : [],
       viewLayout: filesPaneLayout,
     };
@@ -1279,6 +1552,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       URI_JS_COLUMNS: filePaneJsColumnsUri.toString(),
       URI_JS_MENUS: filePaneJsMenusUri.toString(),
       URI_JS_FORMAT: filePaneJsFormatUri.toString(),
+      URI_JS_FILTER_HIGHLIGHT: filePaneJsFilterHighlightUri.toString(),
       URI_JS_GIT_BADGES: filePaneJsGitBadgesUri.toString(),
       URI_JS_TABLE: filePaneJsTableUri.toString(),
       URI_JS_ICON_GRID: filePaneJsIconGridUri.toString(),

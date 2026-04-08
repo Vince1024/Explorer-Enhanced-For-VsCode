@@ -14,80 +14,140 @@
 <body>
   <div class="files-pane-root">
     <div class="files-topbar">
-      <div class="files-topbar-left">
-        <div class="files-path-hint" id="folder"></div>
+      <div class="files-topbar-tools-row">
+        <div class="files-filter-row">
+          <span class="codicon codicon-search files-filter-icon" aria-hidden="true"></span>
+          <div class="files-filter-input-wrap" id="filesFilterInputWrap">
+            <input
+              type="text"
+              id="filesFilterInput"
+              class="files-filter-input"
+              role="searchbox"
+              placeholder="Filter by name…"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="Filter files and folders by name"
+              title="Instant filter on the Name column (case-insensitive). Cleared when you change folder. Esc clears."
+            />
+            <button
+              type="button"
+              class="files-filter-clear-btn"
+              id="filesFilterClearBtn"
+              hidden
+              aria-label="Clear filter"
+              title="Clear filter"
+            >
+              <span class="codicon codicon-close" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="files-icon-btn"
+          id="filesContentSearchToggleBtn"
+          aria-pressed="false"
+          title="Search text inside files under the selected folder (recursive)"
+          aria-label="Search in file contents"
+        >
+          <span class="codicon codicon-file-text" aria-hidden="true"></span>
+        </button>
+        <div class="files-topbar-right" role="toolbar" aria-label="Files view options">
+          <button type="button" class="files-icon-btn" id="foldersToggleBtn" aria-pressed="false" title="Toggle subfolders in list" aria-label="Toggle subfolders in list">
+            <span class="codicon codicon-file folders-toggle-icon" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="files-icon-btn" id="viewsMenuBtn" aria-haspopup="menu" aria-expanded="false" title="Select View" aria-label="Select View">
+            <span id="viewsMenuTriggerIcon" class="views-menu-trigger-icon" aria-hidden="true">@@FRAG_VIEWS_TRIGGER@@</span>
+          </button>
+          <button type="button" class="files-icon-btn" id="settingsMenuBtn" aria-haspopup="menu" aria-expanded="false" title="Settings" aria-label="Settings">
+            <span class="codicon codicon-gear" aria-hidden="true"></span>
+          </button>
+          <ul class="views-menu" id="viewsMenu" role="menu" aria-label="Select View" hidden>
+            <li role="menuitemradio" tabindex="-1" data-layout="icons" aria-checked="false">
+              <span class="views-menu-check" aria-hidden="true"></span>
+              <span class="views-menu-ico" aria-hidden="true">@@FRAG_MENU_ICON_ICONS@@</span>
+              <span class="views-menu-txt">Icons</span>
+            </li>
+            <li role="menuitemradio" tabindex="-1" data-layout="list" aria-checked="false">
+              <span class="views-menu-check" aria-hidden="true"></span>
+              <span class="views-menu-ico" aria-hidden="true">@@FRAG_MENU_ICON_LIST@@</span>
+              <span class="views-menu-txt">List</span>
+            </li>
+            <li role="menuitemradio" tabindex="-1" data-layout="detail" aria-checked="false">
+              <span class="views-menu-check" aria-hidden="true"></span>
+              <span class="views-menu-ico" aria-hidden="true">@@FRAG_MENU_ICON_DETAIL@@</span>
+              <span class="views-menu-txt">Details</span>
+            </li>
+          </ul>
+          <ul class="views-menu settings-menu" id="settingsMenu" role="menu" aria-label="Settings" hidden>
+            <li role="menuitemcheckbox" tabindex="-1" id="settingsSelectActiveFileToggle" data-settings-option="selectActiveFile" aria-checked="true">
+              <span class="views-menu-check" aria-hidden="true"></span>
+              <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-go-to-file"></span></span>
+              <span class="views-menu-txt">Select Active File</span>
+            </li>
+            <li role="menuitemcheckbox" tabindex="-1" id="settingsShowPathToggle" data-settings-option="showPath" aria-checked="true">
+              <span class="views-menu-check" aria-hidden="true"></span>
+              <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-symbol-file"></span></span>
+              <span class="views-menu-txt">Show Path</span>
+            </li>
+            <li role="menuitemcheckbox" tabindex="-1" id="settingsHighlightOpenFilesToggle" data-settings-option="highlightOpenFiles" aria-checked="false">
+              <span class="views-menu-check" aria-hidden="true"></span>
+              <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-layout-sidebar-right"></span></span>
+              <span class="views-menu-txt">Highlight open files</span>
+            </li>
+            <li role="menuitemcheckbox" tabindex="-1" id="settingsFolderSizeToggle" data-settings-option="folderSize" aria-checked="false">
+              <span class="views-menu-check" aria-hidden="true"></span>
+              <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-folder-opened"></span></span>
+              <span class="views-menu-txt">Display folder size</span>
+            </li>
+            <li class="views-menu-sep" role="separator" aria-hidden="true"></li>
+            <li role="menuitemcheckbox" tabindex="-1" id="settingsGitToggle" data-settings-option="git" aria-checked="true">
+              <span class="views-menu-check" aria-hidden="true"></span>
+              <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-git-branch"></span></span>
+              <span class="views-menu-txt">Show Git Status</span>
+            </li>
+            <li role="menuitemcheckbox" tabindex="-1" id="settingsProblemsToggle" data-settings-option="problems" aria-checked="true">
+              <span class="views-menu-check" aria-hidden="true"></span>
+              <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-warning"></span></span>
+              <span class="views-menu-txt">Show Problems</span>
+            </li>
+            <li class="views-menu-sep" role="separator" aria-hidden="true"></li>
+            <li role="menuitemcheckbox" tabindex="-1" id="settingsRowLinesToggle" data-settings-option="rowLines" aria-checked="false">
+              <span class="views-menu-check" aria-hidden="true"></span>
+              <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-menu"></span></span>
+              <span class="views-menu-txt">Show lines</span>
+            </li>
+            <li role="menuitemcheckbox" tabindex="-1" id="settingsColumnLinesToggle" data-settings-option="columnLines" aria-checked="true">
+              <span class="views-menu-check" aria-hidden="true"></span>
+              <span class="views-menu-ico" aria-hidden="true"><span class="settings-menu-burger-90"><span class="codicon codicon-menu"></span></span></span>
+              <span class="views-menu-txt">Show columns</span>
+            </li>
+          </ul>
+        </div>
       </div>
-      <div class="files-topbar-right" role="toolbar" aria-label="Files view options">
-        <button type="button" class="files-icon-btn" id="foldersToggleBtn" aria-pressed="false" title="Toggle subfolders in list" aria-label="Toggle subfolders in list">
-          <span class="codicon codicon-file folders-toggle-icon" aria-hidden="true"></span>
-        </button>
-        <button type="button" class="files-icon-btn" id="viewsMenuBtn" aria-haspopup="menu" aria-expanded="false" title="Select View" aria-label="Select View">
-          <span id="viewsMenuTriggerIcon" class="views-menu-trigger-icon" aria-hidden="true">@@FRAG_VIEWS_TRIGGER@@</span>
-        </button>
-        <button type="button" class="files-icon-btn" id="settingsMenuBtn" aria-haspopup="menu" aria-expanded="false" title="Settings" aria-label="Settings">
-          <span class="codicon codicon-gear" aria-hidden="true"></span>
-        </button>
-        <ul class="views-menu" id="viewsMenu" role="menu" aria-label="Select View" hidden>
-          <li role="menuitemradio" tabindex="-1" data-layout="icons" aria-checked="false">
-            <span class="views-menu-check" aria-hidden="true"></span>
-            <span class="views-menu-ico" aria-hidden="true">@@FRAG_MENU_ICON_ICONS@@</span>
-            <span class="views-menu-txt">Icons</span>
-          </li>
-          <li role="menuitemradio" tabindex="-1" data-layout="list" aria-checked="false">
-            <span class="views-menu-check" aria-hidden="true"></span>
-            <span class="views-menu-ico" aria-hidden="true">@@FRAG_MENU_ICON_LIST@@</span>
-            <span class="views-menu-txt">List</span>
-          </li>
-          <li role="menuitemradio" tabindex="-1" data-layout="detail" aria-checked="false">
-            <span class="views-menu-check" aria-hidden="true"></span>
-            <span class="views-menu-ico" aria-hidden="true">@@FRAG_MENU_ICON_DETAIL@@</span>
-            <span class="views-menu-txt">Details</span>
-          </li>
-        </ul>
-        <ul class="views-menu settings-menu" id="settingsMenu" role="menu" aria-label="Settings" hidden>
-          <li role="menuitemcheckbox" tabindex="-1" id="settingsSelectActiveFileToggle" data-settings-option="selectActiveFile" aria-checked="true">
-            <span class="views-menu-check" aria-hidden="true"></span>
-            <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-go-to-file"></span></span>
-            <span class="views-menu-txt">Select Active File</span>
-          </li>
-          <li role="menuitemcheckbox" tabindex="-1" id="settingsShowPathToggle" data-settings-option="showPath" aria-checked="true">
-            <span class="views-menu-check" aria-hidden="true"></span>
-            <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-symbol-file"></span></span>
-            <span class="views-menu-txt">Show Path</span>
-          </li>
-          <li role="menuitemcheckbox" tabindex="-1" id="settingsHighlightOpenFilesToggle" data-settings-option="highlightOpenFiles" aria-checked="false">
-            <span class="views-menu-check" aria-hidden="true"></span>
-            <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-layout-sidebar-right"></span></span>
-            <span class="views-menu-txt">Highlight open files</span>
-          </li>
-          <li role="menuitemcheckbox" tabindex="-1" id="settingsFolderSizeToggle" data-settings-option="folderSize" aria-checked="false">
-            <span class="views-menu-check" aria-hidden="true"></span>
-            <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-folder-opened"></span></span>
-            <span class="views-menu-txt">Display folder size</span>
-          </li>
-          <li class="views-menu-sep" role="separator" aria-hidden="true"></li>
-          <li role="menuitemcheckbox" tabindex="-1" id="settingsGitToggle" data-settings-option="git" aria-checked="true">
-            <span class="views-menu-check" aria-hidden="true"></span>
-            <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-git-branch"></span></span>
-            <span class="views-menu-txt">Show Git Status</span>
-          </li>
-          <li role="menuitemcheckbox" tabindex="-1" id="settingsProblemsToggle" data-settings-option="problems" aria-checked="true">
-            <span class="views-menu-check" aria-hidden="true"></span>
-            <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-warning"></span></span>
-            <span class="views-menu-txt">Show Problems</span>
-          </li>
-          <li class="views-menu-sep" role="separator" aria-hidden="true"></li>
-          <li role="menuitemcheckbox" tabindex="-1" id="settingsRowLinesToggle" data-settings-option="rowLines" aria-checked="false">
-            <span class="views-menu-check" aria-hidden="true"></span>
-            <span class="views-menu-ico" aria-hidden="true"><span class="codicon codicon-menu"></span></span>
-            <span class="views-menu-txt">Show lines</span>
-          </li>
-          <li role="menuitemcheckbox" tabindex="-1" id="settingsColumnLinesToggle" data-settings-option="columnLines" aria-checked="true">
-            <span class="views-menu-check" aria-hidden="true"></span>
-            <span class="views-menu-ico" aria-hidden="true"><span class="settings-menu-burger-90"><span class="codicon codicon-menu"></span></span></span>
-            <span class="views-menu-txt">Show columns</span>
-          </li>
-        </ul>
+      <div class="files-path-nav" id="filesPathNav">
+        <div class="files-path-nav-buttons">
+          <button
+            type="button"
+            class="files-icon-btn files-path-nav-btn"
+            id="filesNavBackBtn"
+            disabled
+            title="Previous folder"
+            aria-label="Previous folder in history"
+          >
+            <span class="codicon codicon-chevron-left" aria-hidden="true"></span>
+          </button>
+          <button
+            type="button"
+            class="files-icon-btn files-path-nav-btn"
+            id="filesNavForwardBtn"
+            disabled
+            title="Next folder"
+            aria-label="Next folder in history"
+          >
+            <span class="codicon codicon-chevron-right" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div class="files-path-hint files-path-breadcrumb" id="folder" role="navigation" aria-label="Folder path"></div>
       </div>
     </div>
     <div class="files-grid-head-wrap">
@@ -113,6 +173,12 @@
       </table>
     </div>
     <div class="files-scroll-main">
+      <div id="filesContentSearchOverlay" class="files-content-search-overlay" hidden aria-hidden="true">
+        <div class="files-content-search-overlay-inner">
+          <span class="codicon codicon-loading explorer-enhanced-folder-size-spin" aria-hidden="true"></span>
+          <span class="files-content-search-overlay-text">Searching…</span>
+        </div>
+      </div>
       <table id="grid" class="files-grid-surface" aria-label="Files in folder">
         <colgroup>
           <col />
@@ -132,6 +198,7 @@
   <script nonce="@@NONCE@@" src="@@URI_JS_COLUMNS@@"></script>
   <script nonce="@@NONCE@@" src="@@URI_JS_MENUS@@"></script>
   <script nonce="@@NONCE@@" src="@@URI_JS_FORMAT@@"></script>
+  <script nonce="@@NONCE@@" src="@@URI_JS_FILTER_HIGHLIGHT@@"></script>
   <script nonce="@@NONCE@@" src="@@URI_JS_GIT_BADGES@@"></script>
   <script nonce="@@NONCE@@" src="@@URI_JS_TABLE@@"></script>
   <script nonce="@@NONCE@@" src="@@URI_JS_ICON_GRID@@"></script>

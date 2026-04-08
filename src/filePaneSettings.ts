@@ -33,6 +33,9 @@ export const WORKSPACE_HIGHLIGHT_OPEN_FILES_KEY = "explorer-enhanced.workspace.h
 /** Folder / file path in the Files pane hint line (above the list). Default: on. */
 export const WORKSPACE_SHOW_PATH_KEY = "explorer-enhanced.workspace.showPath";
 
+/** When on, the filter field drives a recherche texte sous le dossier affiché (workspace state). Default: off. */
+export const WORKSPACE_FILE_CONTENT_SEARCH_KEY = "explorer-enhanced.workspace.fileContentSearch";
+
 /** Subfolders as rows in Files (workspace memento; legacy config: `fileViews.files.showFoldersInList`). */
 export const WORKSPACE_SHOW_FOLDERS_IN_FILES_LIST_KEY = "explorer-enhanced.workspace.showFoldersInFilesList";
 
@@ -100,6 +103,8 @@ export interface FilesSettingsSnapshot {
   highlightOpenFiles: boolean;
   /** Hint bar: show `Files: <path>` vs hide path text entirely. */
   showPath: boolean;
+  /** Recherche dans le contenu des fichiers (toggle barre Files). */
+  fileContentSearch: boolean;
   dateTimeFormat: DateTimeFormatSetting;
   dateTimeCustomPattern: string;
 }
@@ -317,6 +322,17 @@ export function setShowPath(workspaceState: vscode.Memento, value: boolean): The
   return workspaceState.update(WORKSPACE_SHOW_PATH_KEY, value);
 }
 
+export function getFileContentSearchFromWorkspaceState(workspaceState: vscode.Memento): boolean {
+  return workspaceState.get<boolean>(WORKSPACE_FILE_CONTENT_SEARCH_KEY) === true;
+}
+
+export function setFileContentSearch(
+  workspaceState: vscode.Memento,
+  value: boolean
+): Thenable<void> {
+  return workspaceState.update(WORKSPACE_FILE_CONTENT_SEARCH_KEY, value);
+}
+
 export function getShowFilesInFolderTreeFromWorkspaceState(
   workspaceState: vscode.Memento,
   configs?: EnhanceExplorerSettingsConfigs
@@ -397,6 +413,7 @@ export function getFilesSettingsSnapshot(
   const selectActiveFile = getSelectActiveFileFromWorkspaceState(workspaceState);
   const highlightOpenFiles = getHighlightOpenFilesFromWorkspaceState(workspaceState);
   const showPath = getShowPathFromWorkspaceState(workspaceState);
+  const fileContentSearch = getFileContentSearchFromWorkspaceState(workspaceState);
 
   return {
     showGitStatus,
@@ -408,6 +425,7 @@ export function getFilesSettingsSnapshot(
     selectActiveFile,
     highlightOpenFiles,
     showPath,
+    fileContentSearch,
     dateTimeFormat,
     dateTimeCustomPattern,
   };
