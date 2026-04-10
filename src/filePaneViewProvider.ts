@@ -124,14 +124,31 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   /** Last built rows (for Git-only decoration refresh). */
   private _rowCachePayloads: FileViewRowPayload[] | undefined;
 
-  /** Avoids re-reading `filePane.shell.html` on every `resolveWebviewView` (F5 reload clears this cache). */
+  /**
+   * Avoids re-reading `filePane.shell.html` on every `resolveWebviewView` (F5 reload clears this cache).
+   * Pre-loaded asynchronously in the constructor so the first `resolveWebviewView` usually hits the cache
+   * and skips the synchronous `fs.readFileSync` fallback.
+   */
   private _cachedWebviewShellPath: string | undefined;
   private _cachedWebviewShellTemplate: string | undefined;
 
-  /** Dernière requête « recherche dans les fichiers » (champ filtre, mode contenu). */
+  /** Last "search in files" request (filter field, content mode). */
   private _contentSearchQuery = "";
+  /**
+   * When true, the next Folders tree selection event must not drive `showFolder` (see
+   * {@link FilePaneViewProvider.markSkipFilesListingSyncOnNextTreeSelection}).
+   */
+  private _skipNextTreeSelectionFilesSync = false;
 
-  /** Historique de navigation dossier (chemins normalisés) pour Précédent / Suivant dans la webview. */
+  /**
+   * Last file opened from the Files pane (single / double click). Used for F2 / Delete shortcuts
+   * when focus is in the editor (the webview no longer receives keys).
+   */
+  private _filesPaneKbFileFsPath: string | undefined;
+  /** Folder whose row is "selected" in the listing (single click without opening as a file). */
+  private _filesPaneKbFolderRowFsPath: string | undefined;
+
+  /** Folder navigation history (normalized paths) for Back / Forward in the webview. */
   private _folderHist: string[] = [];
   private _folderHistPos = -1;
 
@@ -340,6 +357,20 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         }, DIAGNOSTICS_DEBOUNCE_MS);
       })
     );
+
+    this._preloadWebviewShellTemplate();
+  }
+
+  /** Async pre-load of the webview shell template so `resolveWebviewView` avoids synchronous `readFileSync`. */
+  private _preloadWebviewShellTemplate(): void {
+    const shellPath = path.join(this._context.extensionPath, FILE_PANE_WEBVIEW_DIR, FILE_PANE_WEBVIEW_SHELL);
+    fs.promises.readFile(shellPath, "utf8").then(
+      (content) => {
+        this._cachedWebviewShellPath = shellPath;
+        this._cachedWebviewShellTemplate = content;
+      },
+      () => { /* Pre-load miss is fine; _getHtml falls back to readFileSync. */ }
+    );
   }
 
   private _requestRefreshCurrentFolder(forceImmediate = false): void {
@@ -409,6 +440,80 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       this._diagnosticsDebounceTimer = undefined;
     }
     this._disposeFolderWatcher();
+    void vscode.commands.executeCommand("setContext", "explorer-enhanced.filesPaneEditorKbActive", false);
+  }
+
+  /**
+   * Updates `explorer-enhanced.filesPaneEditorKbActive` for keyboard shortcuts (F2 / Delete) when
+   * focus is in the editor but the logical selection comes from the Files pane.
+   */
+  syncFilesPaneKeyboardContextKeys(): void {
+    const bindFile = this._computeFilesPaneKbBindFile();
+    const bindFolder = this._computeFilesPaneKbBindFolder();
+    void vscode.commands.executeCommand(
+      "setContext",
+      "explorer-enhanced.filesPaneEditorKbActive",
+      bindFile || bindFolder
+    );
+  }
+
+  /** Renames the "selected" folder in the list or the last file opened from Files. */
+  async runFilesPaneKeyboardRename(): Promise<void> {
+    if (!this._computeFilesPaneKbBindFolder() && !this._computeFilesPaneKbBindFile()) {
+      return;
+    }
+    const bump = (): void => this._onFsChange("both");
+    try {
+      if (this._filesPaneKbFolderRowFsPath) {
+        await actions.renameResource(vscode.Uri.file(this._filesPaneKbFolderRowFsPath), bump);
+        return;
+      }
+      if (this._filesPaneKbFileFsPath) {
+        await actions.renameResource(vscode.Uri.file(this._filesPaneKbFileFsPath), bump);
+      }
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      void vscode.window.showErrorMessage(m);
+    }
+  }
+
+  async runFilesPaneKeyboardDelete(): Promise<void> {
+    if (!this._computeFilesPaneKbBindFolder() && !this._computeFilesPaneKbBindFile()) {
+      return;
+    }
+    const bump = (): void => this._onFsChange("both");
+    try {
+      if (this._filesPaneKbFolderRowFsPath) {
+        await actions.deleteResource(vscode.Uri.file(this._filesPaneKbFolderRowFsPath), bump);
+        return;
+      }
+      if (this._filesPaneKbFileFsPath) {
+        await actions.deleteResource(vscode.Uri.file(this._filesPaneKbFileFsPath), bump);
+      }
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      void vscode.window.showErrorMessage(m);
+    }
+  }
+
+  private _computeFilesPaneKbBindFolder(): boolean {
+    return !!this._filesPaneKbFolderRowFsPath;
+  }
+
+  private _computeFilesPaneKbBindFile(): boolean {
+    if (this._filesPaneKbFolderRowFsPath) {
+      return false;
+    }
+    const p = this._filesPaneKbFileFsPath;
+    if (!p) {
+      return false;
+    }
+    const ed = vscode.window.activeTextEditor;
+    const doc = ed?.document;
+    if (!doc || doc.isUntitled || doc.uri.scheme !== "file") {
+      return false;
+    }
+    return path.normalize(doc.uri.fsPath) === path.normalize(p);
   }
 
   private _normalizeFolderKey(u: vscode.Uri | undefined): string {
@@ -496,6 +601,40 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
 
   getLastFolderUri(): vscode.Uri | undefined {
     return this._lastFolderUri;
+  }
+
+  /**
+   * Content search toggle is on and the webview query is non-empty (hits are listed recursively under the last folder).
+   */
+  isContentSearchSessionActive(): boolean {
+    const q = this._contentSearchQuery.trim();
+    if (!q) {
+      return false;
+    }
+    const settings = getFilesSettingsSnapshot(
+      this._context.workspaceState,
+      resolveEnhanceExplorerSettingsConfigs()
+    );
+    return settings.fileContentSearch;
+  }
+
+  /**
+   * Skip one `showFolder` from the next tree `onDidChangeSelection` (used when editor-driven `reveal` would
+   * select a subfolder and clear the active content-search listing).
+   */
+  markSkipFilesListingSyncOnNextTreeSelection(): void {
+    this._skipNextTreeSelectionFilesSync = true;
+  }
+
+  consumeSkipFilesListingSyncOnNextTreeSelection(): boolean {
+    const v = this._skipNextTreeSelectionFilesSync;
+    this._skipNextTreeSelectionFilesSync = false;
+    return v;
+  }
+
+  /** Clears {@link FilePaneViewProvider.markSkipFilesListingSyncOnNextTreeSelection} if `reveal` failed. */
+  clearSkipFilesListingSyncMarker(): void {
+    this._skipNextTreeSelectionFilesSync = false;
   }
 
   private _isDirectFileChild(file: vscode.Uri, folder: vscode.Uri): boolean {
@@ -710,7 +849,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
           void view.webview.postMessage({ type: "contentSearchProgress", running: true });
         }
         try {
-          progress.report({ message: "Recherche dans les fichiers…" });
+          progress.report({ message: "Searching in files…" });
           const rows = await this._buildContentSearchRows(
             folderUri,
             query,
@@ -718,7 +857,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
             showProblemsInFiles,
             token
           );
-          progress.report({ message: `${rows.length} fichier(s)` });
+          progress.report({ message: `${rows.length} file(s)` });
           return rows;
         } finally {
           if (view) {
@@ -997,9 +1136,11 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   private async _runCtxAction(action: string, uri: vscode.Uri): Promise<void> {
     const bump = (): void => this._onFsChange("both");
     switch (action) {
-      case "open":
-        await openFileInEditorFromWebview(uri, true);
+      case "open": {
+        const hl = this._contentSearchHighlightQueryForOpen();
+        await openFileInEditorFromWebview(uri, true, hl ? { contentSearchHighlight: hl } : undefined);
         return;
+      }
       case "openToSide":
         await actions.openToSide(uri);
         return;
@@ -1085,8 +1226,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Met à jour l’historique avant d’afficher un nouveau dossier (sauf navigation Précédent / Suivant).
-   * Réutilise une entrée existante si l’utilisateur sélectionne un dossier déjà dans l’historique (ex. arbre).
+   * Updates history before showing a new folder (except Back / Forward navigation).
+   * Reuses an existing entry if the user selects a folder already in history (e.g. tree).
    */
   private _applyFolderHistoryBeforeShow(folderUri: vscode.Uri | undefined, historyNav: boolean): void {
     if (historyNav) {
@@ -1135,6 +1276,21 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   private async _applyHistoryFolderAndSyncTree(target: vscode.Uri): Promise<void> {
     await this.showFolder(target, true, { historyNav: true });
     await this._onNavigateToFolder(target);
+  }
+
+  /**
+   * When content search is active, opening a file from Files prefills the editor’s native Find widget with the query.
+   */
+  private _contentSearchHighlightQueryForOpen(): string | undefined {
+    const q = this._contentSearchQuery.trim();
+    if (!q) {
+      return undefined;
+    }
+    const settings = getFilesSettingsSnapshot(
+      this._context.workspaceState,
+      resolveEnhanceExplorerSettingsConfigs()
+    );
+    return settings.fileContentSearch ? q : undefined;
   }
 
   /**
@@ -1195,6 +1351,9 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     const settings = getFilesSettingsSnapshot(this._context.workspaceState, settingsConfigs);
     const viewLayout = getViewLayoutForFilesPane(this._context.workspaceState, settingsConfigs);
     const showGitStatus = settings.showGitStatus;
+    if (showGitStatus) {
+      this._gitFileStatus.ensureInitialized();
+    }
     const showProblemsInFiles = settings.showProblemsInFiles;
     const showFoldersInList = settings.showFoldersInList;
     const showFolderSize = settings.showFolderSize;
@@ -1453,6 +1612,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       const crumbs = buildFolderBreadcrumbSegments(target);
+      this._filesPaneKbFolderRowFsPath = target;
+      this.syncFilesPaneKeyboardContextKeys();
       void wv.postMessage({ type: "folderRowSelect", path: target, folderBreadcrumb: crumbs });
       return;
     }
@@ -1463,7 +1624,12 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     if (msg?.type === "openFile" && msg.path) {
       const uri = vscode.Uri.file(msg.path);
       const preview = msg.preview !== false;
-      void openFileInEditorFromWebview(uri, preview);
+      this._filesPaneKbFileFsPath = path.normalize(msg.path);
+      this._filesPaneKbFolderRowFsPath = undefined;
+      const hl = this._contentSearchHighlightQueryForOpen();
+      void openFileInEditorFromWebview(uri, preview, hl ? { contentSearchHighlight: hl } : undefined).finally(() => {
+        this.syncFilesPaneKeyboardContextKeys();
+      });
       return;
     }
     if (msg?.type === "ctx" && msg.path && msg.action) {

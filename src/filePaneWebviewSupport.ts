@@ -380,9 +380,49 @@ export function statePayloadSignature(p: {
   return hash.digest("hex");
 }
 
-export async function openFileInEditorFromWebview(uri: vscode.Uri, preview: boolean): Promise<void> {
+/** Optional behaviour when opening a file from the Files webview. */
+export interface OpenFileFromWebviewOptions {
+  /**
+   * When set (non-empty after trim), opens the editor’s **native Find** widget with this string
+   * (case-insensitive, non-regex — aligned with recursive content search). User can F3 / Shift+F3 through matches.
+   */
+  contentSearchHighlight?: string;
+}
+
+/**
+ * Prefills the active editor’s Find widget (Ctrl+F). Safe to call after {@link vscode.window.showTextDocument}.
+ */
+async function openEditorFindWidgetWithQuery(query: string): Promise<void> {
+  const q = query.trim();
+  if (!q) {
+    return;
+  }
   try {
-    await vscode.window.showTextDocument(uri, { preview });
+    await vscode.commands.executeCommand("editor.actions.findWithArgs", {
+      searchString: q,
+      isRegex: false,
+      matchWholeWord: false,
+      isCaseSensitive: false,
+      preserveCase: false,
+      findInSelection: false,
+    });
+  } catch {
+    /* Older VS Code builds: ignore */
+  }
+}
+
+export async function openFileInEditorFromWebview(
+  uri: vscode.Uri,
+  preview: boolean,
+  options?: OpenFileFromWebviewOptions
+): Promise<void> {
+  const findQuery = options?.contentSearchHighlight?.trim();
+  try {
+    const doc = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(doc, { preview });
+    if (findQuery) {
+      await openEditorFindWidgetWithQuery(findQuery);
+    }
   } catch {
     try {
       await vscode.commands.executeCommand("vscode.open", uri, { preview });

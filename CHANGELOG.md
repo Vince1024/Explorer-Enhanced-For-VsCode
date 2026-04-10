@@ -7,6 +7,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 > [!NOTE]
 > Release entries are **newest first** (recommended by Keep a Changelog). Older bullets may reference git tags `v0.0.1`–`v0.0.8` (commit SHAs in parentheses); **`v1.0.1`** is the first stable major line; **patch** releases (ex. `v1.0.2`) are bumped by CI on publish.
 
+## [1.0.3] - 2026-04-10
+
+### Added
+
+- **Focus on Start** (`explorer-enhanced.focusOnStart`): opt-in boolean setting (off by default). When enabled, the sidebar switches to Explorer Enhanced on every window open / reload. Uses `onStartupFinished` activation event and a progressive retry mechanism (300 ms / 800 ms / 2 s, skipped once the view is visible) so the focus command runs after VS Code finishes restoring its own UI. Not equivalent to a native "restore last Activity Bar view" — unconditionally focuses the extension (`extension.ts`, `package.json`).
+- **Files** webview: **F2** (rename) and **Delete** — (1) **Webview focus:** same as the **`ctx`** menu (`filePane.js`). (2) **Editor focus** after opening a file from the pane: `package.json` keybindings on `explorer-enhanced.filesPane.renameSelection` / `deleteSelection` when `explorer-enhanced.filesPaneEditorKbActive` (last file opened from Files matches the active editor, or a **folder row** is selected in the list). Avoids stealing F2 from symbol rename when the context is false (`filePaneViewProvider.ts`, `extension.ts`).
+- **Files** webview: opening a file from a **content search** result opens the editor’s **native Find** widget (`Ctrl+F`) **prefilled** with the same query (case-insensitive, non-regex, consistent with the scan); use F3 / Shift+F3 to move between matches (`editor.actions.findWithArgs`, `filePaneWebviewSupport.ts`).
+- **Files** webview: while **content search** is active, **Select Active File** tree sync no longer calls `showFolder` on the file’s parent subfolder after `reveal`, so the recursive hit list and query are **not reset** when you open a file under a subdirectory (`extension.ts`, `filePaneViewProvider.ts`).
+
+### Changed
+
+- **Startup:** **`vscode.git` is not activated** until the Files pane actually needs Git badges (`showGitStatus` on) — `GitFileStatusService.ensureInitialized()` from `_showFolderFlush` (`gitFileStatusService.ts`, `filePaneViewProvider.ts`). If Git is disabled in the Files settings menu, the built-in Git extension may stay unloaded longer.
+- **Startup:** removed **`extensionDependencies: ["vscode.git"]`** from `package.json` — VS Code no longer force-activates the built-in Git extension before Explorer Enhanced loads. The extension already activates `vscode.git` on demand via `ensureInitialized()` when the Git column is enabled; the hard dependency was redundant and added latency even when Git badges were off.
+- **Startup:** webview shell template (`filePane.shell.html`) is **pre-loaded asynchronously** in the `FilePaneViewProvider` constructor (`fs.promises.readFile`), so the first `resolveWebviewView` usually hits the in-memory cache and skips the synchronous `fs.readFileSync` fallback (`filePaneViewProvider.ts`).
+- **Startup:** recursive workspace `**/*` `FileSystemWatcher`s are registered on the **first macrotask** after `activate` (together with the existing deferred Folders/Files sync), not synchronously in `activate` — lighter handoff back to VS Code; `onDidCreateFiles` / `onDidDeleteFiles` / `onDidRenameFiles` still apply immediately. Timer cleared on extension dispose (`extension.ts`).
+- **Settings:** reorganized into three ordered groups — **Explorer Enhanced** (Focus on Start), **Folders** (Folder Expand Interaction), **Files** (Date Time Format, Date Time Custom Pattern) — using VS Code's `configuration` array with `order` (`package.json`).
+
+### Fixed
+
+- **Files** webview: **`margin: 1px`** on **`.files-topbar`** so the filter/breadcrumb block does not sit flush against the webview edge, avoiding the workbench sash / compositor clipping the horizontal separator and right edge (`filePane.common.css`).
+- **Files** webview: **native Find** after opening from **content search** keeps the **Replace** row **collapsed** (`filePaneWebviewSupport.ts`). **Do not** pass `replaceString` to `editor.actions.findWithArgs`: VS Code sets `isReplaceRevealed` when `replaceString !== undefined`, so even `""` expanded Replace.
+
 ## [1.0.2] - 2026-04-08
 
 ### Added

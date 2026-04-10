@@ -201,6 +201,10 @@
     }
   }
 
+  function isCtxMenuOpen() {
+    return ctxMenuEl !== null;
+  }
+
   /**
    * @param {number} clientX
    * @param {number} clientY
@@ -468,6 +472,7 @@
     syncSettingsShowPathToggle,
     showFileCtxMenu,
     hideCtxMenu,
+    isCtxMenuOpen,
     hideViewsMenu,
     hideSettingsMenu,
     setRevealOsTitle,

@@ -195,7 +195,7 @@ export async function openWithPicker(uri: vscode.Uri): Promise<void> {
   await vscode.window.showTextDocument(uri, { preview: true });
   const ok = await executeFirstCommand([{ command: "workbench.action.reopenWithEditor" }]);
   if (!ok) {
-    void vscode.window.showWarningMessage("Open With… n'est pas disponible.");
+    void vscode.window.showWarningMessage("Open With… is not available.");
   }
 }
 
@@ -211,7 +211,7 @@ export async function findInFolder(uri: vscode.Uri): Promise<void> {
     await vscode.commands.executeCommand("filesExplorer.findInFolder", uri);
     return;
   } catch {
-    /* fallback recherche */
+    /* fallback search */
   }
   const rel = vscode.workspace.asRelativePath(uri, false);
   if (rel && !rel.startsWith("..")) {
@@ -226,7 +226,7 @@ export async function findInFolder(uri: vscode.Uri): Promise<void> {
       return;
     }
   }
-  void vscode.window.showWarningMessage("Impossible d'ouvrir la recherche dans ce dossier.");
+  void vscode.window.showWarningMessage("Could not open search in this folder.");
 }
 
 export async function explorerCut(uri: vscode.Uri): Promise<void> {
@@ -252,7 +252,7 @@ export async function selectForCompare(uri: vscode.Uri): Promise<void> {
 export async function openTimeline(uri: vscode.Uri): Promise<void> {
   const ok = await executeFirstCommand([{ command: "files.openTimeline", args: [uri] }]);
   if (!ok) {
-    void vscode.window.showWarningMessage("Impossible d'ouvrir la timeline pour ce fichier.");
+    void vscode.window.showWarningMessage("Could not open the timeline for this file.");
   }
 }
 
@@ -264,7 +264,7 @@ export async function findFileReferences(uri: vscode.Uri): Promise<void> {
   ]);
   if (!ok) {
     void vscode.window.showWarningMessage(
-      "Références introuvables (aucun fournisseur ou commande d'extension)."
+      "References not found (no provider or extension command)."
     );
   }
 }
@@ -275,7 +275,7 @@ export async function runTestsForExplorerItem(uri: vscode.Uri): Promise<void> {
     const stat = await vscode.workspace.fs.stat(uri);
     isDir = isFsDirectory(stat.type);
   } catch {
-    void vscode.window.showWarningMessage("Impossible de lire la ressource.");
+    void vscode.window.showWarningMessage("Could not read the resource.");
     return;
   }
   if (isDir) {
@@ -285,7 +285,7 @@ export async function runTestsForExplorerItem(uri: vscode.Uri): Promise<void> {
     ]);
     if (!ok) {
       void vscode.window.showInformationMessage(
-        "Pour un dossier, lancez les tests depuis la vue Testing ou un fichier de test."
+        "For a folder, run tests from the Testing view or a test file."
       );
     }
     return;
@@ -298,7 +298,7 @@ export async function runTestsForExplorerItem(uri: vscode.Uri): Promise<void> {
   ]);
   if (!ran) {
     void vscode.window.showInformationMessage(
-      "Aucune commande de tests reconnue pour ce fichier (extension Testing / débogage)."
+      "No recognized test command for this file (Testing extension / debugging)."
     );
   }
 }
@@ -313,7 +313,7 @@ export async function cursorOrGitBlame(uri: vscode.Uri): Promise<void> {
   ]);
   if (!ok) {
     void vscode.window.showInformationMessage(
-      "Aucune commande Blame reconnue (Cursor ou GitLens)."
+      "No recognized Blame command (Cursor or GitLens)."
     );
   }
 }
@@ -354,7 +354,7 @@ export async function addToCursorChat(uri: vscode.Uri): Promise<void> {
     }
   }
   void vscode.window.showInformationMessage(
-    "Impossible d'ajouter au chat : commande Cursor / Chat non disponible depuis l'extension."
+    "Could not add to chat: Cursor / Chat command not available from this extension."
   );
 }
 
@@ -375,6 +375,6 @@ export async function addToNewCursorChat(uri: vscode.Uri): Promise<void> {
     /* */
   }
   void vscode.window.showInformationMessage(
-    "Impossible d'ajouter à un nouveau chat : commande non disponible."
+    "Could not add to a new chat: command not available."
   );
 }

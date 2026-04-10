@@ -52,7 +52,7 @@ body.explorer-enhanced-layout-icons #grid tbody {
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  /* gap: 0 — même logique que .status-cell-inner : évite "3 , M" (flex gap entre chiffre et ", ") */
+  /* gap: 0 — same rationale as .status-cell-inner: avoids "3 , M" (flex gap between digit and ", ") */
   gap: 0;
   margin-top: 2px;
   font-size: 10px;

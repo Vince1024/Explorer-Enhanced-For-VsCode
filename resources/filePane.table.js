@@ -2,7 +2,6 @@
 (function () {
   let vscodeApi;
   let bodyEl;
-  let gridEl;
   let gridHeadEl;
   let getShowGitStatus;
   let getShowProblemsInFiles;
@@ -162,8 +161,8 @@
   function folderSizeSpinnerEl() {
     const sp = document.createElement('span');
     sp.className = 'codicon codicon-loading explorer-enhanced-folder-size-spin';
-    sp.setAttribute('aria-label', 'Calcul de la taille du dossier');
-    sp.title = 'Calcul de la taille…';
+    sp.setAttribute('aria-label', 'Calculating folder size');
+    sp.title = 'Calculating size…';
     return sp;
   }
 
@@ -422,11 +421,10 @@
     });
   }
 
-  /** @param {{ vscode: object; bodyEl: HTMLElement; gridEl: HTMLElement; gridHeadEl: HTMLElement; getShowGitStatus: () => boolean; getShowProblemsInFiles: () => boolean; getShowFolderSize?: () => boolean; dateTimeCustomPatternBoot: unknown; onFolderRowSingleClick?: (fsPath: string) => void; onClearFolderListSelection?: () => void }} opts */
+  /** @param {{ vscode: object; bodyEl: HTMLElement; gridHeadEl: HTMLElement; getShowGitStatus: () => boolean; getShowProblemsInFiles: () => boolean; getShowFolderSize?: () => boolean; dateTimeCustomPatternBoot: unknown; onFolderRowSingleClick?: (fsPath: string) => void; onClearFolderListSelection?: () => void }} opts */
   function init(opts) {
     vscodeApi = opts.vscode;
     bodyEl = opts.bodyEl;
-    gridEl = opts.gridEl;
     gridHeadEl = opts.gridHeadEl;
     getShowGitStatus = opts.getShowGitStatus;
     getShowProblemsInFiles = opts.getShowProblemsInFiles;

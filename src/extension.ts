@@ -165,12 +165,12 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         await treeView.reveal(item, { select: true, focus: false, expand: true });
       } catch {
-        /* reveal peut échouer (hors arbre) ; showFolder ci-dessous rafraîchit quand même le volet Files */
+        /* reveal can fail (outside the tree); showFolder below still refreshes the Files pane */
       }
     }
-    /* Toujours aligner le volet Files sur ce dossier : ne pas dépendre seul de onDidChangeSelection
-       (manquant ou retardé après reveal → chemin / listing obsolètes). Après reveal, pas de showFolder
-       avant pour éviter un re-render du webview au milieu d’un double-clic. */
+    /* Always align the Files pane on this folder: do not rely solely on onDidChangeSelection
+       (missing or delayed after reveal → stale path / listing). After reveal, no showFolder
+       before to avoid a webview re-render in the middle of a double-click. */
     void p.showFolder(folderUri, true);
   };
 
@@ -242,7 +242,13 @@ export function activate(context: vscode.ExtensionContext): void {
       rootRecursiveWatchers.push(w);
     }
   };
-  setupRootRecursiveWatchers();
+
+  /**
+   * First macrotask after `activate` returns: install recursive FS watchers + initial Folders/Files sync.
+   * Watchers are deferred so `activate` is lighter; `onDidCreateFiles` / `onDidDeleteFiles` / `onDidRenameFiles`
+   * still cover editor-driven changes during the gap. Cleared on dispose if the window shuts down immediately.
+   */
+  let startupKickoffTimer: ReturnType<typeof setTimeout> | undefined;
 
   const registerFolderCtx = (
     command: string,
@@ -268,6 +274,10 @@ export function activate(context: vscode.ExtensionContext): void {
       if (startupCoalesceTimer !== undefined) {
         clearTimeout(startupCoalesceTimer);
       }
+      if (startupKickoffTimer !== undefined) {
+        clearTimeout(startupKickoffTimer);
+        startupKickoffTimer = undefined;
+      }
       for (const w of rootRecursiveWatchers) {
         w.dispose();
       }
@@ -276,6 +286,15 @@ export function activate(context: vscode.ExtensionContext): void {
     new vscode.Disposable(() => filePane.dispose()),
     treeView,
     vscode.window.registerWebviewViewProvider(FilePaneViewProvider.viewType, filePane),
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      filePane.syncFilesPaneKeyboardContextKeys();
+    }),
+    vscode.commands.registerCommand("explorer-enhanced.filesPane.renameSelection", async () => {
+      await filePane.runFilesPaneKeyboardRename();
+    }),
+    vscode.commands.registerCommand("explorer-enhanced.filesPane.deleteSelection", async () => {
+      await filePane.runFilesPaneKeyboardDelete();
+    }),
     vscode.workspace.onDidCreateFiles((e) => {
       for (const uri of e.files) {
         if (uriInWorkspace(uri)) {
@@ -305,8 +324,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.commands.registerCommand("explorer-enhanced.focus", async () => {
-      await vscode.commands.executeCommand("workbench.action.focusSideBar");
-      await vscode.commands.executeCommand("explorer-enhanced.folderTree.focus");
+      await vscode.commands.executeCommand("workbench.view.extension.explorer-enhanced");
     }),
     vscode.commands.registerCommand("explorer-enhanced.showFoldersInList", () => {
       void setShowFoldersInFilesList(context.workspaceState, true).then(() => {
@@ -408,6 +426,9 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   const syncFilesToFolderSelection = (): void => {
+    if (filePane.consumeSkipFilesListingSyncOnNextTreeSelection()) {
+      return;
+    }
     const sel = treeView.selection[0];
     if (sel) {
       const folderUri = sel.isFileEntry ? vscode.Uri.file(path.dirname(sel.uri.fsPath)) : sel.uri;
@@ -445,9 +466,13 @@ export function activate(context: vscode.ExtensionContext): void {
       const fileItem = await folderData.getTreeItemForFileUri(docUri);
       if (fileItem) {
         try {
+          if (filePane.isContentSearchSessionActive()) {
+            filePane.markSkipFilesListingSyncOnNextTreeSelection();
+          }
           await treeView.reveal(fileItem, { select: true, focus: false, expand: true });
           return;
         } catch {
+          filePane.clearSkipFilesListingSyncMarker();
           /* Tree not ready or node missing — fall back to folder below */
         }
       }
@@ -463,8 +488,12 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     try {
+      if (filePane.isContentSearchSessionActive()) {
+        filePane.markSkipFilesListingSyncOnNextTreeSelection();
+      }
       await treeView.reveal(item, { select: true, focus: false, expand: true });
     } catch {
+      filePane.clearSkipFilesListingSyncMarker();
       /* Item not yet in model or view hidden — ignore */
     }
   };
@@ -516,13 +545,28 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
-  /** Yield one turn so Folders can paint before reveal + Files sync (lighter perceived first load). */
-  setTimeout(() => {
+  /** One macrotask after `activate`: recursive watchers, then Folders/Files sync (see `startupKickoffTimer` dispose). */
+  startupKickoffTimer = setTimeout(() => {
+    startupKickoffTimer = undefined;
+    setupRootRecursiveWatchers();
     if (treeView.selection.length > 0) {
       syncFilesToFolderSelection();
     }
     runSyncFolderTreeToActiveEditor();
   }, 0);
+
+  if (vscode.workspace.getConfiguration("explorer-enhanced").get<boolean>("focusOnStart")) {
+    const FOCUS_DELAYS_MS = [300, 800, 2000];
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (const ms of FOCUS_DELAYS_MS) {
+      timers.push(setTimeout(() => {
+        if (!treeView.visible) {
+          void vscode.commands.executeCommand("workbench.view.extension.explorer-enhanced");
+        }
+      }, ms));
+    }
+    context.subscriptions.push(new vscode.Disposable(() => timers.forEach(clearTimeout)));
+  }
 }
 
 export function deactivate(): void {}

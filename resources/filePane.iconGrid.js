@@ -152,8 +152,8 @@
         if (r.folderSizePending) {
           const sp = document.createElement('span');
           sp.className = 'codicon codicon-loading explorer-enhanced-folder-size-spin';
-          sp.setAttribute('aria-label', 'Calcul de la taille du dossier');
-          sp.title = 'Calcul de la taille…';
+          sp.setAttribute('aria-label', 'Calculating folder size');
+          sp.title = 'Calculating size…';
           meta.appendChild(sp);
         } else {
           meta.textContent = fmtSizeBytes(r.size || 0);

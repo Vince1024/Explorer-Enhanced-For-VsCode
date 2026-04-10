@@ -365,12 +365,31 @@ export class GitFileStatusService implements vscode.Disposable {
   private _api: GitAPI | undefined;
   private _wiredApi = false;
   private _bumpTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Single-flight init from {@link ensureInitialized}; not started at construction (faster extension activation). */
+  private _initPromise: Promise<void> | undefined;
+  private _alive = true;
 
   constructor() {
-    void this._tryInit();
+    /* Git wiring deferred until {@link ensureInitialized} — avoids activating `vscode.git` on startup when Files Git column is off. */
+  }
+
+  /**
+   * Idempotent: safe to call from any code path that needs {@link getModelForFile} / SCM listeners.
+   * No-ops once the Git API is wired or after {@link dispose}.
+   */
+  ensureInitialized(): void {
+    if (!this._alive || this._wiredApi) {
+      return;
+    }
+    if (!this._initPromise) {
+      this._initPromise = this._tryInit();
+    }
+    void this._initPromise;
   }
 
   dispose(): void {
+    this._alive = false;
+    this._initPromise = undefined;
     if (this._bumpTimer !== undefined) {
       clearTimeout(this._bumpTimer);
       this._bumpTimer = undefined;
@@ -636,7 +655,7 @@ export class GitFileStatusService implements vscode.Disposable {
   }
 
   private _wireApi(api: GitAPI): void {
-    if (this._wiredApi) {
+    if (!this._alive || this._wiredApi) {
       return;
     }
     this._wiredApi = true;
@@ -657,6 +676,9 @@ export class GitFileStatusService implements vscode.Disposable {
   }
 
   private async _tryInit(): Promise<void> {
+    if (!this._alive) {
+      return;
+    }
     const ext = vscode.extensions.getExtension<GitExtensionExports>("vscode.git");
     if (!ext) {
       return;

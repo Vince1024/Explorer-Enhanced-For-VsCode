@@ -58,13 +58,20 @@ if (!gridHeadEl) {
   throw new Error('explorer-enhanced: missing #grid-head');
 }
 
-/** Dossier (ligne liste) sélectionné au simple clic : surbrillance + fil d’Ariane, sans changer le listing. */
+const iconsPaneEl = document.getElementById('iconsPane');
+
+/** List row folder selected on single click: highlight + breadcrumb, without changing the listing. */
 let selectedListFolderPath = '';
 /** @type {Array<{ label: string; path: string }>} */
 let selectedListFolderCrumbs = [];
 
+/** Last list/grid entry clicked (F2 / Delete if editor sync is slow). */
+let lastCtxKeyboardPath = '';
+/** @type {'file' | 'folder'} */
+let lastCtxKeyboardKind = 'file';
+
 const scrollMainEl = document.querySelector('.files-scroll-main');
-/** Aligne #grid-head avec #grid : la zone scrollable réduit la largeur utile quand la scrollbar est présente. */
+/** Align #grid-head with #grid: the scrollable area reduces usable width when the scrollbar is present. */
 function syncScrollportScrollbarWidth() {
   if (!scrollMainEl) return;
   const sb = Math.max(0, scrollMainEl.offsetWidth - scrollMainEl.clientWidth);
@@ -108,7 +115,7 @@ function applyFolderRowSelectionClasses() {
   }
 }
 
-/** Réinitialise l’état « dossier sélectionné au clic » et le DOM ; sans rafraîchir le fil d’Ariane. */
+/** Resets "folder selected on click" state and the DOM; does not refresh the breadcrumb. */
 function clearFolderRowListSelectionDomOnly() {
   selectedListFolderPath = '';
   selectedListFolderCrumbs = [];
@@ -121,7 +128,7 @@ function clearSelectedListFolderRow() {
   renderPathHint();
 }
 
-/** Réponse hôte : surbrillance + fil d’Ariane pour le dossier cliqué (listing inchangé). */
+/** Host response: highlight + breadcrumb for the clicked folder (listing unchanged). */
 function applyFolderRowSelectFromHost(msg) {
   selectedListFolderPath = typeof msg.path === 'string' ? msg.path : '';
   selectedListFolderCrumbs = Array.isArray(msg.folderBreadcrumb) ? msg.folderBreadcrumb : [];
@@ -129,7 +136,7 @@ function applyFolderRowSelectFromHost(msg) {
   renderPathHint();
 }
 
-/** Simple clic dossier : demande le fil d’Ariane côté hôte (listing inchangé). */
+/** Folder single click: requests breadcrumb from host (listing unchanged). */
 function postSelectFolderRow(fsPath) {
   if (typeof fsPath !== 'string' || fsPath.length === 0) return;
   vscode.postMessage({ type: 'selectFolderRow', path: fsPath });
@@ -143,7 +150,7 @@ let showFolderSize = boot.showFolderSize === true;
 let selectActiveFile = boot.selectActiveFile !== false;
 let highlightOpenFiles = boot.highlightOpenFiles === true;
 let showPath = boot.showPath !== false;
-/** Mode « recherche dans le contenu des fichiers » (toggle barre d’outils). */
+/** "Search in file contents" mode (toolbar toggle). */
 let fileContentSearchEnabled = boot.fileContentSearch === true;
 /** @type {ReturnType<typeof setTimeout> | null} */
 let contentSearchDebounceTimer = null;
@@ -210,10 +217,134 @@ Menus.syncSettingsSelectActiveFileToggle(selectActiveFile);
 Menus.syncSettingsShowPathToggle(showPath);
 Menus.syncFilesContentSearchToggle(fileContentSearchEnabled);
 
+function isFilesPaneTopbarMenuOpen() {
+  const v = document.getElementById('viewsMenu');
+  const s = document.getElementById('settingsMenu');
+  return (
+    !!(v && v.classList.contains('views-menu--open')) || !!(s && s.classList.contains('views-menu--open'))
+  );
+}
+
+function isKeydownTargetEditable(target) {
+  if (!target || typeof target !== 'object') return false;
+  const el = target.nodeType === 1 ? target : target.parentElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (el.isContentEditable) return true;
+  return !!(el.closest && el.closest('[contenteditable="true"]'));
+}
+
+function recordCtxKeyboardPathFromListClick(fsPath, kind) {
+  if (typeof fsPath !== 'string' || fsPath.length === 0) return;
+  lastCtxKeyboardPath = fsPath;
+  lastCtxKeyboardKind = kind === 'folder' ? 'folder' : 'file';
+}
+
+function escapeAttrSelectorValue(s) {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(s);
+  }
+  return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function getCtxKeyboardTarget() {
+  const icons = document.body.classList.contains('explorer-enhanced-layout-icons');
+
+  if (selectedListFolderPath) {
+    return { path: selectedListFolderPath, kind: 'folder' };
+  }
+
+  if (icons && iconsPaneEl) {
+    const t = iconsPaneEl.querySelector('.files-icon-tile[data-path].editor-active');
+    if (t && t.dataset.path) {
+      return { path: t.dataset.path, kind: t.dataset.kind === 'folder' ? 'folder' : 'file' };
+    }
+  } else if (bodyEl) {
+    const tr = bodyEl.querySelector('tr[data-path].editor-active');
+    if (tr && tr.dataset.path) {
+      return { path: tr.dataset.path, kind: tr.dataset.kind === 'folder' ? 'folder' : 'file' };
+    }
+  }
+
+  if (lastCtxKeyboardPath) {
+    const esc = escapeAttrSelectorValue(lastCtxKeyboardPath);
+    const still =
+      icons && iconsPaneEl
+        ? iconsPaneEl.querySelector('.files-icon-tile[data-path="' + esc + '"]')
+        : bodyEl
+          ? bodyEl.querySelector('tr[data-path="' + esc + '"]')
+          : null;
+    if (still) {
+      return { path: lastCtxKeyboardPath, kind: lastCtxKeyboardKind };
+    }
+  }
+
+  return null;
+}
+
+function postCtxActionFromKeyboard(action) {
+  const t = getCtxKeyboardTarget();
+  if (!t || !t.path) return false;
+  vscode.postMessage({ type: 'ctx', action, path: t.path });
+  return true;
+}
+
+function onFilesPaneKeydownCapture(e) {
+  if (!e || e.defaultPrevented) return;
+  if (typeof Menus.isCtxMenuOpen === 'function' && Menus.isCtxMenuOpen()) return;
+  if (isFilesPaneTopbarMenuOpen()) return;
+  if (isKeydownTargetEditable(e.target)) return;
+
+  if (e.key === 'F2') {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (postCtxActionFromKeyboard('rename')) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    return;
+  }
+  if (e.key === 'Delete' || e.code === 'Delete') {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (postCtxActionFromKeyboard('delete')) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+}
+
+if (bodyEl) {
+  bodyEl.addEventListener(
+    'click',
+    (e) => {
+      const tr = e.target && e.target.closest && e.target.closest('tr[data-path]');
+      if (!tr || !bodyEl.contains(tr)) return;
+      const p = tr.dataset.path;
+      if (!p) return;
+      recordCtxKeyboardPathFromListClick(p, tr.dataset.kind === 'folder' ? 'folder' : 'file');
+    },
+    true
+  );
+}
+if (iconsPaneEl) {
+  iconsPaneEl.addEventListener(
+    'click',
+    (e) => {
+      const tile = e.target && e.target.closest && e.target.closest('.files-icon-tile[data-path]');
+      if (!tile || !iconsPaneEl.contains(tile)) return;
+      const p = tile.dataset.path;
+      if (!p) return;
+      recordCtxKeyboardPathFromListClick(p, tile.dataset.kind === 'folder' ? 'folder' : 'file');
+    },
+    true
+  );
+}
+
+document.addEventListener('keydown', onFilesPaneKeydownCapture, true);
+
 Table.init({
   vscode,
   bodyEl,
-  gridEl,
   gridHeadEl,
   getShowGitStatus: () => showGitStatus,
   getShowProblemsInFiles: () => showProblemsInFiles,
@@ -313,7 +444,6 @@ if (filesFilterClearBtn && filesFilterInput) {
   });
 }
 
-const iconsPaneEl = document.getElementById('iconsPane');
 IconGrid.init({
   vscode,
   paneEl: iconsPaneEl,
@@ -375,7 +505,7 @@ function fileIsUnderCurrentFolder(filePath, folderPath) {
   return fsPathNormForCompare(fsParentDir(filePath)) === fsPathNormForCompare(folderPath);
 }
 
-/** Chemin natif pour presse-papiers (ex. antislashs sous Windows). */
+/** Native path for clipboard (e.g. backslashes on Windows). */
 function normalizePathForClipboard(fsPath) {
   if (!fsPath || typeof fsPath !== 'string') return '';
   if (CRUMB_PATH_SEP === '\\') {
@@ -405,9 +535,6 @@ function onFolderElCopy(e) {
   e.clipboardData.setData('text/plain', clip);
 }
 
-/**
- * @param {boolean} everyCrumbIsButton When true, last segment is still a folder button (active file shown after crumbs).
- */
 function appendCrumbSeparator(parentEl) {
   const sep = document.createElement('span');
   sep.className = 'files-path-crumb-sep';
@@ -416,6 +543,11 @@ function appendCrumbSeparator(parentEl) {
   parentEl.appendChild(sep);
 }
 
+/**
+ * @param {HTMLElement} parentEl
+ * @param {Array<{ label: string; path: string }>} crumbs
+ * @param {boolean} everyCrumbIsButton When true, last segment is still a folder button (active file shown after crumbs).
+ */
 function appendFolderBreadcrumbSegments(parentEl, crumbs, everyCrumbIsButton) {
   for (let i = 0; i < crumbs.length; i++) {
     const seg = crumbs[i];
@@ -524,6 +656,10 @@ if (filesNavForwardBtn) {
 function applyEditorSelection(fsPath) {
   const target = fsPath || '';
   currentEditorFilePath = target;
+  if (target) {
+    lastCtxKeyboardPath = target;
+    lastCtxKeyboardKind = 'file';
+  }
   renderPathHint();
   for (const tr of bodyEl.querySelectorAll('tr[data-path].editor-active')) {
     tr.classList.remove('editor-active');

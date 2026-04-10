@@ -33,7 +33,7 @@ export const WORKSPACE_HIGHLIGHT_OPEN_FILES_KEY = "explorer-enhanced.workspace.h
 /** Folder / file path in the Files pane hint line (above the list). Default: on. */
 export const WORKSPACE_SHOW_PATH_KEY = "explorer-enhanced.workspace.showPath";
 
-/** When on, the filter field drives a recherche texte sous le dossier affiché (workspace state). Default: off. */
+/** When on, the filter field runs a text search under the displayed folder (workspace state). Default: off. */
 export const WORKSPACE_FILE_CONTENT_SEARCH_KEY = "explorer-enhanced.workspace.fileContentSearch";
 
 /** Subfolders as rows in Files (workspace memento; legacy config: `fileViews.files.showFoldersInList`). */
@@ -103,7 +103,7 @@ export interface FilesSettingsSnapshot {
   highlightOpenFiles: boolean;
   /** Hint bar: show `Files: <path>` vs hide path text entirely. */
   showPath: boolean;
-  /** Recherche dans le contenu des fichiers (toggle barre Files). */
+  /** Search file contents (Files bar toggle). */
   fileContentSearch: boolean;
   dateTimeFormat: DateTimeFormatSetting;
   dateTimeCustomPattern: string;
@@ -146,27 +146,6 @@ function readDateTimeFileSettings(
   const fallback = workspaceState.get<string | undefined>(WORKSPACE_DATE_TIME_CUSTOM_PATTERN_KEY);
   const coalesced = capped ? capped : fallback && fallback.trim() ? fallback.trim() : DEFAULT_DATE_TIME_CUSTOM_PATTERN;
   return { dateTimeFormat, dateTimeCustomPattern: coalesced };
-}
-
-export function getDateTimeFormatSetting(): DateTimeFormatSetting {
-  const noopMemento: vscode.Memento = {
-    get: () => undefined,
-    update: () => Promise.resolve(),
-    keys: () => [],
-  };
-  return readDateTimeFileSettings(noopMemento, getEnhanceExplorerConfiguration(), getLegacyFileViewsConfiguration())
-    .dateTimeFormat;
-}
-
-/** Pattern for `custom` date format; trimmed, non-empty, capped for safety. */
-export function getDateTimeCustomPattern(): string {
-  const noopMemento: vscode.Memento = {
-    get: () => undefined,
-    update: () => Promise.resolve(),
-    keys: () => [],
-  };
-  return readDateTimeFileSettings(noopMemento, getEnhanceExplorerConfiguration(), getLegacyFileViewsConfiguration())
-    .dateTimeCustomPattern;
 }
 
 /** Git-style default ON unless explicitly `false`; toggles use strict booleans in memento. */

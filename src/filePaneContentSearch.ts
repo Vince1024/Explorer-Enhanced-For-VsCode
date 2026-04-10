@@ -41,11 +41,11 @@ const BIN_EXT = new Set([
   ".jar",
 ]);
 
-/** Limite de chemins énumérés (findFiles). */
+/** Maximum enumerated paths (findFiles). */
 export const CONTENT_SEARCH_MAX_URIS = 2000;
-/** Octets lus max par fichier (UTF-8). */
+/** Max bytes read per file (UTF-8). */
 export const CONTENT_SEARCH_MAX_BYTES = 384 * 1024;
-/** Parallélisme lecture / scan contenu. */
+/** Read / content scan parallelism. */
 export const CONTENT_SEARCH_READ_CONCURRENCY = 10;
 
 function binaryExtension(fsPath: string): boolean {
@@ -63,8 +63,8 @@ function looksBinaryBuffer(buf: Uint8Array): boolean {
 }
 
 /**
- * Fichiers sous `folderUri` dont le contenu (UTF-8, tronqué) contient `query` (sous-chaîne, insensible à la casse).
- * Respecte `token` ; ignore binaires / gros fichiers / dossiers d’artefacts courants.
+ * Files under `folderUri` whose (truncated UTF-8) content contains `query` (substring, case-insensitive).
+ * Honors `token`; skips binaries / large files / common artifact folders.
  */
 export async function collectUrisWithTextUnderFolder(
   folderUri: vscode.Uri,
@@ -106,7 +106,7 @@ export async function collectUrisWithTextUnderFolder(
         matching.push(uri);
       }
     } catch {
-      /* fichier supprimé / verrou : ignorer */
+      /* file deleted / locked: ignore */
     }
   });
 
@@ -114,7 +114,7 @@ export async function collectUrisWithTextUnderFolder(
   return matching;
 }
 
-/** Nom affiché : chemin relatif au dossier racine de recherche (slash « / »), sinon base. */
+/** Display name: path relative to search root (forward slash "/"), else basename. */
 export function displayNameRelativeToFolder(folderUri: vscode.Uri, fileUri: vscode.Uri): string {
   const root = path.normalize(folderUri.fsPath);
   const fp = path.normalize(fileUri.fsPath);

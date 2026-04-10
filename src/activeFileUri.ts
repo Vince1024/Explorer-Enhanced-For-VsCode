@@ -2,7 +2,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 /** Single `file:` resource for the tab input (diff: prefers modified side). */
-export function fileUriFromTabInput(input: unknown): vscode.Uri | undefined {
+function fileUriFromTabInput(input: unknown): vscode.Uri | undefined {
   if (input instanceof vscode.TabInputText && input.uri.scheme === "file") {
     return input.uri;
   }

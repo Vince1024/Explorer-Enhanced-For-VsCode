@@ -4,6 +4,8 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
 
 **Repository:** [Explorer-Enhanced-For-VsCode](https://github.com/Vince1024/Explorer-Enhanced-For-VsCode)
 
+**Release notes:** [CHANGELOG.md](CHANGELOG.md)
+
 ## Screenshots
 
 ### Full View
@@ -38,7 +40,7 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
     </td>
     <td align="center" width="30%">
       <img src="images/Files-List-View.png" alt="Files — List layout" width="90%" /><br />
-      <sub><strong>List</strong>: name + Git/Problems .</sub>
+      <sub><strong>List</strong>: name + Git/Problems.</sub>
     </td>
     <td align="center" width="30%">
       <img src="images/Files-Detail-View.png" alt="Files — Details layout" width="90%" /><br />
@@ -46,11 +48,6 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
     </td>
   </tr>
 </table>
-
-## Requirements
-
-- **VS Code** `^1.85.0`
-- Built-in **Git** extension (`vscode.git`) — used for Git decorations in **Files** and related behavior.
 
 ## Features
 
@@ -65,8 +62,9 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
 
 - Table or icon layout: sortable columns, optional Git status, problems counts, folder sizes, path hint, layout switcher (list / details / icons).
 - **Folder row selection:** a **single click** on a **folder** in the listing **highlights** that row and updates the **breadcrumb / path** line to that folder’s path. The file listing **stays** on the folder you had opened; **double-click** still **opens** the folder. Selection is cleared when you open another folder, click a file row, or when the active editor sync updates the path hint for a file.
+- **Keyboard in the listing:** **F2** (rename) and **Delete** match the context menu when the **Files** webview has focus (same target order: **selected folder row** → **active-editor** row → last **click**). After you open a file from the list, focus usually moves to the editor: the extension then registers **workbench** keybindings so **F2** / **Delete** still rename/delete that file (or the **selected folder row** if you single-clicked a folder) instead of triggering the editor’s symbol rename (e.g. Markdown headings). Not active while the **filter** field, a **toolbar** menu, or the **context menu** is open.
 - **Filter by name:** on the **first row** of the Files pane, the search field shares a line with the view/settings **toolbar** (icons); the **path** sits on the row below and **wraps** on long paths. Filtering applies to **List**, **Details**, and **Icons** (case-insensitive substring). Matching substrings in file and folder **names** are highlighted using theme colors (`list.filterValue*`, then editor find-match / selection highlight fallbacks). The query is cleared when you open a different folder; **Esc** or the **`codicon-close`** button (visible when the field is not empty) clears the filter. The field uses **`role="searchbox"`** for accessibility (`type="text"` so the clear control renders reliably in the webview).
-- **Search in file contents:** the **`codicon-file-text`** toggle switches the same field to a **recursive text search** under the currently selected folder (debounced). The extension reads candidate files as UTF-8 with sensible exclusions and limits (see `src/filePaneContentSearch.ts`). While a search runs, you get **window progress** and a **spinner overlay** in the webview; the table lists matching files only. The choice is remembered per workspace.
+- **Search in file contents:** the **`codicon-file-text`** toggle switches the same field to a **recursive text search** under the currently selected folder (debounced). The extension reads candidate files as UTF-8 with sensible exclusions and limits (see `src/filePaneContentSearch.ts`). While a search runs, you get **window progress** and a **spinner overlay** in the webview; the table lists matching files only. The choice is remembered per workspace. When you **open** a hit, the editor’s **native Find** bar opens **prefilled** with the same query (case-insensitive). The **Replace** row stays **collapsed** (expand with the widget chevron if needed); use **F3** / **Shift+F3** to jump between matches. With **Select Active File** enabled, the **Folders** tree still follows the open file, but the **Files** listing **stays** on your content-search results (the query is not cleared just because the hit lives in a subfolder).
 - **Column widths (List + Details):** **Name** uses the remaining horizontal space. **Modified**, **Size**, and the combined **Git / Problems** column use **fixed pixel** widths (drag the header separators). The Git/Problems width is **shared** between List and Details: resizing in one view applies to the other. Values are stored in workspace state under `explorer-enhanced.filePane.detailColWidthsPx` (triplet `[modifiedPx, sizePx, statusPx]`). Min/max bounds are defined once in the extension and passed into the webview at load so the UI and host validation stay aligned.
 - Git badges mirror the built-in Explorer where possible: working tree + index, merge/conflict, and **incoming (upstream)** when behind a tracked branch.
 
@@ -74,9 +72,10 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
 
 | ID | Description |
 |----|-------------|
+| `explorer-enhanced.focusOnStart` | When `true`, Explorer Enhanced receives focus every time a window opens or reloads (see [Focus on Start](#focus-on-start)). Default: `false`. |
+| `explorer-enhanced.folders.folderExpandInteraction` | How **Folders** tree rows expand. See [Folder expand interaction](#folder-expand-interaction). |
 | `explorer-enhanced.files.dateTimeFormat` | How **Modified** is formatted (`locale`, `iso`, `relative`, `custom`, …). |
 | `explorer-enhanced.files.dateTimeCustomPattern` | Pattern when format is `custom` (tokens: `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss`, …). |
-| `explorer-enhanced.folders.folderExpandInteraction` | How **Folders** tree rows expand. See [Folder expand interaction](#folder-expand-interaction). |
 
 Additional options (subfolders in list, Git/problems columns, etc.) are exposed from the **Files** view settings menu and stored in workspace state.
 
@@ -94,6 +93,17 @@ Additional options (subfolders in list, Git/problems columns, etc.) are exposed 
 - **File** nodes in the Folders tree (when “files in tree” is enabled) still **open on single click** because they use `vscode.open`. VS Code does not apply tree expand mode to items that define a `command`.
 
 To configure expand behavior globally without the extension writing the workspace file, set **`Workbench › Tree: Expand Mode`** (`workbench.tree.expandMode`) yourself and keep **`Folders: Folder Expand Interaction`** on **`inherit`**.
+
+### Focus on Start
+
+When **`explorer-enhanced.focusOnStart`** is `true`, the extension switches the sidebar to Explorer Enhanced every time a VS Code window opens or reloads. The extension uses the `onStartupFinished` activation event and a progressive retry mechanism so the focus command runs after VS Code finishes restoring its own UI.
+
+This is **not** the same as a native "restore last Activity Bar view" setting — that does not exist in VS Code. This option **unconditionally** focuses Explorer Enhanced regardless of which view was active before.
+
+## Requirements
+
+- **VS Code** `^1.85.0`
+- Built-in **Git** extension (`vscode.git`) — used for Git decorations in **Files** and related behavior.
 
 ## Commands
 

@@ -6,7 +6,7 @@
  * Keep all selectors scoped to .explorer-enhanced-layout-detail so they never fight List mode.
  */
 
-/* Comme en Liste : pas de colonne status (œil) si Git et Problems sont tous les deux off. */
+/* As in List: no status column (eye) when both Git and Problems are off. */
 body.explorer-enhanced-layout-detail:not(.explorer-enhanced-show-git):not(.explorer-enhanced-show-problems) #grid-head thead th:nth-child(4),
 body.explorer-enhanced-layout-detail:not(.explorer-enhanced-show-git):not(.explorer-enhanced-show-problems) #grid tbody td:nth-child(4) {
   width: 0;
@@ -30,7 +30,7 @@ body.explorer-enhanced-layout-detail:not(.explorer-enhanced-show-row-lines) #gri
   border-bottom: none;
 }
 
-/* Show columns : séparateurs verticaux uniquement sur le corps (évite grille sur #grid-head + décalage). */
+/* Show columns: vertical separators on the body only (avoids grid on #grid-head + misalignment). */
 body.explorer-enhanced-layout-detail.explorer-enhanced-show-column-lines #grid tbody td:not(:last-child) {
   border-right: 1px solid var(--vscode-widget-border, rgba(127, 127, 127, 0.3));
 }
