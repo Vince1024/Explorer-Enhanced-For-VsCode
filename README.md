@@ -128,6 +128,20 @@ npm run lint
 npm run package   # VSIX via vsce
 ```
 
+### Open VSX only (retry without bumping version)
+
+If **Deploy Extension** built a release but **Open VSX** failed while the Marketplace step succeeded, do **not** re-run the full deploy (that would compute a **new** patch version). Instead:
+
+1. **GitHub Actions → Publish Open VSX only → Run workflow** and set **version** to the semver of the existing release (e.g. `1.0.4`, no `v`). The workflow downloads `explorer-enhanced-{version}.vsix` from that release and runs `ovsx publish` using `OPENVSX_TOKEN`.
+
+2. **Or locally** (after downloading the VSIX from the release page):
+
+   ```bash
+   npx ovsx publish -p "$OVSX_PAT" explorer-enhanced-1.0.4.vsix
+   ```
+
+   On Windows PowerShell, set `$env:OVSX_PAT` to your Open VSX token (or use `-p` with the token string — avoid committing it).
+
 ## Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md).

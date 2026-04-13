@@ -88,9 +88,10 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_TOKEN }}
 
       # Même VSIX que ci-dessus — Cursor / VSCodium lisent surtout Open VSX.
-      # Auth: OVSX_PAT (lu par ovsx). Ne pas utiliser -t ici : c’est --target (architectures), pas le PAT.
+      # Pass -p explicitly so auth does not depend on npx/child inheriting OVSX_PAT alone.
+      # Ne pas utiliser -t ici : c’est --target (architectures), pas le PAT.
       - name: Publish to Open VSX Registry
-        run: npx ovsx publish "explorer-enhanced-${VERSION}.vsix"
+        run: npx ovsx publish -p "$OVSX_PAT" "explorer-enhanced-${VERSION}.vsix"
         env:
           VERSION: ${{ steps.version.outputs.version }}
           OVSX_PAT: ${{ secrets.OPENVSX_TOKEN }}

@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Highlight open files** now uses a **text color** (`--vscode-textLink-foreground`) instead of a background fill — lighter on the UI. Applies to list, details, and icons layouts (`filePane.common.css`).
 - **Path hint** no longer shows the `Files: ` prefix. Drive letters are capitalized (`c:\` → `C:\`). Copy (`Ctrl+C`) on the breadcrumb now copies the **selected text** when a partial selection exists; falls back to the full path when nothing is selected (`filePane.js`).
 - **Docs:** README settings table and **Files** feature list updated for symlink codicons, open-file highlight styling, Git context actions, and **Follow .lnk links** (`README.md`).
+- **CI:** workflow **Publish Open VSX only** (`workflow_dispatch`) republishes an existing release VSIX to Open VSX without a semver bump; README documents retry vs full deploy (`Publish-OpenVSX-only.yml`).
 
 ### Fixed
 

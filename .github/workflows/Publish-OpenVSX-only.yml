@@ -1,0 +1,35 @@
+# Publishes an existing VSIX from a GitHub Release to Open VSX only (no version bump, no Marketplace).
+# Use when the main Deploy workflow built the release but Open VSX failed (e.g. transient Publisher Agreement check).
+#
+# Prerequisite: release v{version} exists with asset explorer-enhanced-{version}.vsix
+# Secrets: OPENVSX_TOKEN (same as main workflow → OVSX_PAT)
+
+name: Publish Open VSX only
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver without v (must match release tag and VSIX name, e.g. 1.0.4)"
+        required: true
+        type: string
+
+jobs:
+  openvsx:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download VSIX from release
+        run: |
+          set -euo pipefail
+          V="${{ inputs.version }}"
+          TAG="v${V}"
+          FILE="explorer-enhanced-${V}.vsix"
+          URL="https://github.com/Vince1024/Explorer-Enhanced-For-VsCode/releases/download/${TAG}/${FILE}"
+          echo "Downloading: $URL"
+          curl -fSL -o "$FILE" "$URL"
+          ls -la "$FILE"
+
+      - name: Publish to Open VSX Registry
+        run: npx ovsx publish -p "$OVSX_PAT" "explorer-enhanced-${{ inputs.version }}.vsix"
+        env:
+          OVSX_PAT: ${{ secrets.OPENVSX_TOKEN }}
