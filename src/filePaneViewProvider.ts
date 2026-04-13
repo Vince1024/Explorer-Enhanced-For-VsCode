@@ -5,7 +5,7 @@ import { collectOpenWorkspaceFilePaths, getActiveWorkspaceFileUri } from "./acti
 import * as actions from "./explorerContextActions";
 import { mapPool } from "./asyncPool";
 import { computeDirectorySizeBytes } from "./folderSizeUtils";
-import { isFsDirectory, isFsFile } from "./fileTypeUtils";
+import { isFsDirectory, isFsFile, isFsSymbolicLink } from "./fileTypeUtils";
 import {
   DEFAULT_DATE_TIME_CUSTOM_PATTERN,
   FILES_PANE_VIEW_LAYOUT_STATE_KEY,
@@ -766,7 +766,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     size: number,
     showGitColumn: boolean,
     showProblemsColumn: boolean,
-    problemsByPath: Map<string, FileProblemsCount> | undefined
+    problemsByPath: Map<string, FileProblemsCount> | undefined,
+    fileType?: vscode.FileType
   ): FileViewRowPayload {
     const base: FileViewRowPayload = {
       name,
@@ -774,6 +775,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       mtime,
       size,
       ...(entryKind === "folder" ? { kind: "folder" as const } : {}),
+      ...(fileType !== undefined && isFsSymbolicLink(fileType) ? { symlink: true } : {}),
     };
     let row: FileViewRowPayload = base;
     const gitCell = this._buildGitCellPayload(entryUri, entryKind, showGitColumn);
@@ -994,7 +996,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
             folderSizeBytes,
             showGitStatus,
             showProblemsInFiles,
-            problemsByPath
+            problemsByPath,
+            e.fileType
           );
           if (folderPending) {
             row = { ...row, folderSizePending: true };
@@ -1009,7 +1012,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
             folderSizeBytes,
             showGitStatus,
             showProblemsInFiles,
-            problemsByPath
+            problemsByPath,
+            e.fileType
           );
           if (folderPending) {
             row = { ...row, folderSizePending: true };
@@ -1027,7 +1031,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
           stat.size,
           showGitStatus,
           showProblemsInFiles,
-          problemsByPath
+          problemsByPath,
+          e.fileType
         );
       } catch {
         return this._entryRowPayload(
@@ -1038,7 +1043,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
           0,
           showGitStatus,
           showProblemsInFiles,
-          problemsByPath
+          problemsByPath,
+          e.fileType
         );
       }
     });
@@ -1206,6 +1212,18 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         return;
       case "delete":
         await actions.deleteResource(uri, bump);
+        return;
+      case "gitStage":
+        await actions.gitStage(uri);
+        bump();
+        return;
+      case "gitUnstage":
+        await actions.gitUnstage(uri);
+        bump();
+        return;
+      case "gitDiscard":
+        await actions.gitDiscard(uri);
+        bump();
         return;
       default:
         return;

@@ -505,13 +505,22 @@ function fileIsUnderCurrentFolder(filePath, folderPath) {
   return fsPathNormForCompare(fsParentDir(filePath)) === fsPathNormForCompare(folderPath);
 }
 
+/** Capitalize drive letter (c:\ → C:\) for display. */
+function capitalizeDriveLetter(p) {
+  if (!p || typeof p !== 'string') return p || '';
+  return /^[a-z]:/.test(p) ? p[0].toUpperCase() + p.slice(1) : p;
+}
+
 /** Native path for clipboard (e.g. backslashes on Windows). */
 function normalizePathForClipboard(fsPath) {
   if (!fsPath || typeof fsPath !== 'string') return '';
+  let p = fsPath;
   if (CRUMB_PATH_SEP === '\\') {
-    return fsPath.replace(/\//g, '\\');
+    p = p.replace(/\//g, '\\');
+  } else {
+    p = p.replace(/\\/g, '/');
   }
-  return fsPath.replace(/\\/g, '/');
+  return capitalizeDriveLetter(p);
 }
 
 function getBreadcrumbClipboardPath() {
@@ -527,10 +536,18 @@ function getBreadcrumbClipboardPath() {
 }
 
 function onFolderElCopy(e) {
-  const clip = getBreadcrumbClipboardPath();
-  if (!clip || !folderEl) return;
+  if (!folderEl) return;
   const sel = document.getSelection();
-  if (!sel || !folderEl.contains(sel.anchorNode)) return;
+  if (sel && !sel.isCollapsed && folderEl.contains(sel.anchorNode)) {
+    const selectedText = sel.toString();
+    if (selectedText) {
+      e.preventDefault();
+      e.clipboardData.setData('text/plain', selectedText);
+      return;
+    }
+  }
+  const clip = getBreadcrumbClipboardPath();
+  if (!clip) return;
   e.preventDefault();
   e.clipboardData.setData('text/plain', clip);
 }
@@ -554,13 +571,14 @@ function appendFolderBreadcrumbSegments(parentEl, crumbs, everyCrumbIsButton) {
     if (i > 0) {
       appendCrumbSeparator(parentEl);
     }
+    const displayLabel = i === 0 ? capitalizeDriveLetter(seg.label) : seg.label;
     const isLast = i === crumbs.length - 1;
     const asButton = !isLast || everyCrumbIsButton;
     if (asButton) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'files-path-crumb';
-      btn.textContent = seg.label;
+      btn.textContent = displayLabel;
       btn.title = seg.path;
       btn.setAttribute('aria-label', 'Open folder ' + seg.path);
       btn.addEventListener('click', () => {
@@ -570,7 +588,7 @@ function appendFolderBreadcrumbSegments(parentEl, crumbs, everyCrumbIsButton) {
     } else {
       const cur = document.createElement('span');
       cur.className = 'files-path-crumb-current';
-      cur.textContent = seg.label;
+      cur.textContent = displayLabel;
       cur.setAttribute('aria-current', 'page');
       parentEl.appendChild(cur);
     }
@@ -599,10 +617,6 @@ function renderPathHint() {
     currentEditorFilePath && fileIsUnderCurrentFolder(currentEditorFilePath, pathForActiveFileCheck);
 
   if (activeFileInThisFolder && crumbs.length > 0) {
-    const prefix = document.createElement('span');
-    prefix.className = 'files-path-file-hint';
-    prefix.textContent = 'Files: ';
-    folderEl.appendChild(prefix);
     appendFolderBreadcrumbSegments(folderEl, crumbs, true);
     const fi = Math.max(currentEditorFilePath.lastIndexOf('/'), currentEditorFilePath.lastIndexOf('\\'));
     const base = fi >= 0 ? currentEditorFilePath.slice(fi + 1) : currentEditorFilePath;
@@ -619,7 +633,7 @@ function renderPathHint() {
   if (activeFileInThisFolder && crumbs.length === 0) {
     const span = document.createElement('span');
     span.className = 'files-path-file-hint';
-    span.textContent = 'Files: ' + currentEditorFilePath;
+    span.textContent = capitalizeDriveLetter(currentEditorFilePath);
     folderEl.appendChild(span);
     return;
   }
@@ -627,14 +641,10 @@ function renderPathHint() {
   if (crumbs.length === 0) {
     const span = document.createElement('span');
     span.className = 'files-path-file-hint';
-    span.textContent = 'Files: ' + currentFolderPath;
+    span.textContent = capitalizeDriveLetter(currentFolderPath);
     folderEl.appendChild(span);
     return;
   }
-  const prefix2 = document.createElement('span');
-  prefix2.className = 'files-path-file-hint';
-  prefix2.textContent = 'Files: ';
-  folderEl.appendChild(prefix2);
   appendFolderBreadcrumbSegments(folderEl, crumbs, false);
 }
 

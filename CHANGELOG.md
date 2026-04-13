@@ -7,6 +7,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 > [!NOTE]
 > Release entries are **newest first** (recommended by Keep a Changelog). Older bullets may reference git tags `v0.0.1`–`v0.0.8` (commit SHAs in parentheses); **`v1.0.1`** is the first stable major line; **patch** releases (ex. `v1.0.2`) are bumped by CI on publish.
 
+## [1.0.4] - 2026-04-13
+
+### Added
+
+- **Symlink / junction indicators:** symbolic links and junctions are now visually distinguished in the **Files** webview with dedicated codicons (`file-symlink-file`, `file-symlink-directory`) replacing the standard SVG icon. The **Folders** tree already shows a native symlink arrow via VS Code's `resourceUri` resolution. Uses `isFsSymbolicLink` helper on `vscode.FileType.SymbolicLink` bit (`fileTypeUtils.ts`, `filePaneViewProvider.ts`, `filePane.icons.js`, `filePane.table.js`, `filePane.iconGrid.js`, `filePane.common.css`).
+- **Git context actions:** right-click on a file in the **Files** webview now shows **Git: Stage**, **Git: Discard Changes**, and **Git: Unstage** when the file has pending Git changes. Stage and Discard appear for working-tree changes; Unstage appears for staged (index) changes. Uses built-in `git.stage`, `git.clean`, `git.unstage` commands (`explorerContextActions.ts`, `filePaneViewProvider.ts`, `filePane.menus.js`).
+- **Follow .lnk links** (`explorer-enhanced.files.followLnkLinks`, off by default): on **Windows**, opening a `.lnk` from **Files** (or **Open to the Side** / **Cursor Blame** on that row) resolves the Shell Link target via PowerShell + WScript.Shell and opens the target file instead of the binary shortcut (`lnkTargetResolve.ts`, `filePaneWebviewSupport.ts`, `explorerContextActions.ts`, `package.json`).
+
+### Changed
+
+- **Highlight open files** now uses a **text color** (`--vscode-textLink-foreground`) instead of a background fill — lighter on the UI. Applies to list, details, and icons layouts (`filePane.common.css`).
+- **Path hint** no longer shows the `Files: ` prefix. Drive letters are capitalized (`c:\` → `C:\`). Copy (`Ctrl+C`) on the breadcrumb now copies the **selected text** when a partial selection exists; falls back to the full path when nothing is selected (`filePane.js`).
+- **Docs:** README settings table and **Files** feature list updated for symlink codicons, open-file highlight styling, Git context actions, and **Follow .lnk links** (`README.md`).
+
+### Fixed
+
+- **Files** header columns now stay aligned with the body when the vertical scrollbar is visible. The header wrapper consumes the already-measured `--explorer-enhanced-files-scrollbar-w` CSS variable as dynamic `padding-right` (`filePane.common.css`).
+- **Content search → native Find:** clicking a search result no longer prefills the Find widget with clipboard content. The fix closes any existing Find widget and adds a short focus-settle delay before issuing `editor.actions.findWithArgs` with the correct query (`filePaneWebviewSupport.ts`).
+
 ## [1.0.3] - 2026-04-10
 
 ### Added

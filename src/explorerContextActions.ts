@@ -1,6 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { isFsDirectory } from "./fileTypeUtils";
+import { resolveUriForLnkFollow } from "./lnkTargetResolve";
 
 /** Label for revealFileInOS (Explorer wording varies by platform). */
 export function revealInOsMenuTitle(): string {
@@ -23,14 +24,15 @@ export async function revealInOs(uri: vscode.Uri): Promise<void> {
 }
 
 export async function openToSide(uri: vscode.Uri): Promise<void> {
+  const u = await resolveUriForLnkFollow(uri);
   try {
-    await vscode.commands.executeCommand("revealInExplorer", uri);
+    await vscode.commands.executeCommand("revealInExplorer", u);
     await vscode.commands.executeCommand("explorer.openToSide");
     return;
   } catch {
     /* fallback */
   }
-  await vscode.commands.executeCommand("vscode.open", uri, {
+  await vscode.commands.executeCommand("vscode.open", u, {
     viewColumn: vscode.ViewColumn.Beside,
   });
 }
@@ -304,7 +306,8 @@ export async function runTestsForExplorerItem(uri: vscode.Uri): Promise<void> {
 }
 
 export async function cursorOrGitBlame(uri: vscode.Uri): Promise<void> {
-  await vscode.window.showTextDocument(uri, { preview: true });
+  const u = await resolveUriForLnkFollow(uri);
+  await vscode.window.showTextDocument(u, { preview: true });
   const ok = await executeFirstCommand([
     { command: "cursor.blame" },
     { command: "cursor.toggleBlame" },
@@ -356,6 +359,18 @@ export async function addToCursorChat(uri: vscode.Uri): Promise<void> {
   void vscode.window.showInformationMessage(
     "Could not add to chat: Cursor / Chat command not available from this extension."
   );
+}
+
+export async function gitStage(uri: vscode.Uri): Promise<void> {
+  await vscode.commands.executeCommand("git.stage", uri);
+}
+
+export async function gitUnstage(uri: vscode.Uri): Promise<void> {
+  await vscode.commands.executeCommand("git.unstage", uri);
+}
+
+export async function gitDiscard(uri: vscode.Uri): Promise<void> {
+  await vscode.commands.executeCommand("git.clean", uri);
 }
 
 export async function addToNewCursorChat(uri: vscode.Uri): Promise<void> {

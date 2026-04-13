@@ -3,6 +3,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import type { FileViewRowPayload } from "./gitFileStatusService";
 import type { DateTimeFormatSetting, ViewLayoutSetting } from "./filePaneSettings";
+import { resolveUriForLnkFollow } from "./lnkTargetResolve";
 
 /** Messages from the Files webview (`postMessage`). */
 export interface FilePaneWebviewInboundMessage {
@@ -349,6 +350,7 @@ export function statePayloadSignature(p: {
     u(r.kind === "folder" ? "d" : "f");
     u("\t");
     u(pend);
+    u(r.symlink ? "s" : "");
     u("\t");
     if (r.git) {
       u(r.git.primary.letter);
@@ -398,6 +400,11 @@ async function openEditorFindWidgetWithQuery(query: string): Promise<void> {
     return;
   }
   try {
+    // Close any existing Find widget so the seed-from-clipboard/selection behaviour
+    // does not override our explicit searchString.
+    await vscode.commands.executeCommand("closeFindWidget");
+    // Small delay lets the editor fully acquire focus after showTextDocument.
+    await new Promise((r) => setTimeout(r, 80));
     await vscode.commands.executeCommand("editor.actions.findWithArgs", {
       searchString: q,
       isRegex: false,
@@ -416,18 +423,19 @@ export async function openFileInEditorFromWebview(
   preview: boolean,
   options?: OpenFileFromWebviewOptions
 ): Promise<void> {
+  const openUri = await resolveUriForLnkFollow(uri);
   const findQuery = options?.contentSearchHighlight?.trim();
   try {
-    const doc = await vscode.workspace.openTextDocument(uri);
+    const doc = await vscode.workspace.openTextDocument(openUri);
     await vscode.window.showTextDocument(doc, { preview });
     if (findQuery) {
       await openEditorFindWidgetWithQuery(findQuery);
     }
   } catch {
     try {
-      await vscode.commands.executeCommand("vscode.open", uri, { preview });
+      await vscode.commands.executeCommand("vscode.open", openUri, { preview });
     } catch {
-      void vscode.window.showErrorMessage(`Could not open: ${uri.fsPath}`);
+      void vscode.window.showErrorMessage(`Could not open: ${openUri.fsPath}`);
     }
   }
 }

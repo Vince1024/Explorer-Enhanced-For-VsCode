@@ -41,6 +41,8 @@ export interface FileViewRowPayload {
   size: number;
   /** Omitted or `"file"` for files; `"folder"` when subfolders are listed in Files. */
   kind?: "file" | "folder";
+  /** `true` when the entry is a symbolic link or junction. */
+  symlink?: boolean;
   /** Folder size is still being computed (Display folder size option). */
   folderSizePending?: boolean;
   /**

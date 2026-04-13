@@ -12,3 +12,7 @@ export function isFsDirectory(type: vscode.FileType): boolean {
 export function isFsFile(type: vscode.FileType): boolean {
   return (type & vscode.FileType.File) !== 0 && (type & vscode.FileType.Directory) === 0;
 }
+
+export function isFsSymbolicLink(type: vscode.FileType): boolean {
+  return (type & vscode.FileType.SymbolicLink) !== 0;
+}

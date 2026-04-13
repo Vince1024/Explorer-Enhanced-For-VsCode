@@ -67,6 +67,10 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
 - **Search in file contents:** the **`codicon-file-text`** toggle switches the same field to a **recursive text search** under the currently selected folder (debounced). The extension reads candidate files as UTF-8 with sensible exclusions and limits (see `src/filePaneContentSearch.ts`). While a search runs, you get **window progress** and a **spinner overlay** in the webview; the table lists matching files only. The choice is remembered per workspace. When you **open** a hit, the editor’s **native Find** bar opens **prefilled** with the same query (case-insensitive). The **Replace** row stays **collapsed** (expand with the widget chevron if needed); use **F3** / **Shift+F3** to jump between matches. With **Select Active File** enabled, the **Folders** tree still follows the open file, but the **Files** listing **stays** on your content-search results (the query is not cleared just because the hit lives in a subfolder).
 - **Column widths (List + Details):** **Name** uses the remaining horizontal space. **Modified**, **Size**, and the combined **Git / Problems** column use **fixed pixel** widths (drag the header separators). The Git/Problems width is **shared** between List and Details: resizing in one view applies to the other. Values are stored in workspace state under `explorer-enhanced.filePane.detailColWidthsPx` (triplet `[modifiedPx, sizePx, statusPx]`). Min/max bounds are defined once in the extension and passed into the webview at load so the UI and host validation stay aligned.
 - Git badges mirror the built-in Explorer where possible: working tree + index, merge/conflict, and **incoming (upstream)** when behind a tracked branch.
+- **Symlink / junction** rows use dedicated codicons (`file-symlink-file`, `file-symlink-directory`) when the entry is a symbolic link or junction (Windows).
+- **Highlight open files** (optional): open editor tabs are indicated by **link-colored text** (`textLinkForeground`), not a row background.
+- **Context menu (Git):** on files with pending changes, **Git: Stage**, **Git: Discard Changes**, and **Git: Unstage** call the built-in Git commands (when the Git column data is available).
+- **Follow .lnk links** (Windows, optional setting): opening a `.lnk` shortcut from **Files** or related context actions can resolve and open the **target** instead of the binary shortcut.
 
 ## Settings
 
@@ -76,6 +80,7 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
 | `explorer-enhanced.folders.folderExpandInteraction` | How **Folders** tree rows expand. See [Folder expand interaction](#folder-expand-interaction). |
 | `explorer-enhanced.files.dateTimeFormat` | How **Modified** is formatted (`locale`, `iso`, `relative`, `custom`, …). |
 | `explorer-enhanced.files.dateTimeCustomPattern` | Pattern when format is `custom` (tokens: `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss`, …). |
+| `explorer-enhanced.files.followLnkLinks` | On **Windows**, open Shell Link **targets** for `.lnk` files instead of the shortcut file. Default: `false`. |
 
 Additional options (subfolders in list, Git/problems columns, etc.) are exposed from the **Files** view settings menu and stored in workspace state.
 

@@ -229,8 +229,7 @@
       nameRow.className = 'name-row';
       const iconWrap = document.createElement('span');
       iconWrap.className = 'file-icon';
-      const ic = Icons.iconForEntry(r);
-      iconWrap.appendChild(Icons.svgIcon(ic.d, ic.fill));
+      iconWrap.appendChild(Icons.iconElementForEntry(r));
       const nameSpan = document.createElement('span');
       nameSpan.className = 'file-name';
       FilterHighlight.appendNameWithFilterHighlights(nameSpan, r.name, nameFilterNorm);
@@ -354,7 +353,7 @@
       });
       tr.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        Menus.showFileCtxMenu(e.clientX, e.clientY, r.path, r.kind === 'folder' ? 'folder' : 'file');
+        Menus.showFileCtxMenu(e.clientX, e.clientY, r.path, r.kind === 'folder' ? 'folder' : 'file', r.git);
       });
       bodyEl.appendChild(tr);
     }

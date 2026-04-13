@@ -72,8 +72,7 @@
 
       const iconWrap = document.createElement('div');
       iconWrap.className = 'files-icon-tile-ico';
-      const ic = Icons.iconForEntry(r);
-      iconWrap.appendChild(Icons.svgIcon(ic.d, ic.fill));
+      iconWrap.appendChild(Icons.iconElementForEntry(r));
 
       const badgeRow = document.createElement('div');
       badgeRow.className = 'files-icon-tile-badges';
@@ -183,7 +182,7 @@
       });
       tile.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        Menus.showFileCtxMenu(e.clientX, e.clientY, r.path, r.kind === 'folder' ? 'folder' : 'file');
+        Menus.showFileCtxMenu(e.clientX, e.clientY, r.path, r.kind === 'folder' ? 'folder' : 'file', r.git);
       });
       paneEl.appendChild(tile);
     }

@@ -109,8 +109,6 @@ export class FolderTreeItem extends vscode.TreeItem {
     } else {
       this.id = "explorer-enhanced.folder:" + cacheKey(uri);
       this.contextValue = "explorer-enhanced.folder";
-      // Without iconPath, VS Code uses Folder icon for collapsible items but File icon for
-      // CollapsibleState.None — leaf folders (e.g. src, out) would then get file-themed icons.
       this.iconPath = vscode.ThemeIcon.Folder;
     }
     this.tooltip = uri.fsPath;

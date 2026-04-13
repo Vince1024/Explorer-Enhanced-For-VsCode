@@ -130,5 +130,21 @@
     return iconForFileName(r.name);
   }
 
-  globalThis.FilePaneIcons = { svgIcon, iconForEntry };
+  /**
+   * Returns a ready-to-append DOM element for the entry icon.
+   * Symlinks get the dedicated codicon; normal entries get the SVG icon.
+   */
+  function iconElementForEntry(r) {
+    if (r.symlink) {
+      const el = document.createElement('span');
+      el.className = r.kind === 'folder'
+        ? 'codicon codicon-file-symlink-directory'
+        : 'codicon codicon-file-symlink-file';
+      return el;
+    }
+    const ic = iconForEntry(r);
+    return svgIcon(ic.d, ic.fill);
+  }
+
+  globalThis.FilePaneIcons = { svgIcon, iconForEntry, iconElementForEntry };
 })();

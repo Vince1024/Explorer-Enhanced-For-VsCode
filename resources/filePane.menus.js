@@ -210,8 +210,9 @@
    * @param {number} clientY
    * @param {string} filePath
    * @param {'file' | 'folder'} [kind]
+   * @param {{ primary?: { letter: string; kind: string }; secondary?: { letter: string; kind: string } }} [gitInfo]
    */
-  function showFileCtxMenu(clientX, clientY, filePath, kind) {
+  function showFileCtxMenu(clientX, clientY, filePath, kind, gitInfo) {
     hideTopbarDropdowns();
     hideCtxMenu();
     const ul = document.createElement('ul');
@@ -276,6 +277,20 @@
       add('Open in Integrated Terminal', 'openInTerminal');
       sep();
       add('Cursor Blame', 'cursorBlame');
+      if (gitInfo) {
+        const hasWorking = gitInfo.primary && gitInfo.primary.letter;
+        const hasStaged = gitInfo.secondary && gitInfo.secondary.letter;
+        if (hasWorking || hasStaged) {
+          sep();
+          if (hasWorking) {
+            add('Git: Stage', 'gitStage');
+            add('Git: Discard Changes', 'gitDiscard');
+          }
+          if (hasStaged) {
+            add('Git: Unstage', 'gitUnstage');
+          }
+        }
+      }
       sep();
       add('Select for Compare', 'selectForCompare');
       sep();

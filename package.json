@@ -109,6 +109,12 @@
             "type": "string",
             "default": "DD-MM-YYYY HH:mm:ss",
             "markdownDescription": "Used when **Files: Date Time Format** is `custom`. Tokens: `YYYY`/`yyyy`, `YY`/`yy`, `MM` (month, 2 digits), `DD` (day), `HH` (24h), `mm` (minutes, **lowercase**), `ss`, `SSS` (milliseconds). Other characters (spaces, `-`, `:`, \u2026) are copied as-is. Values use the local timezone."
+          },
+          "explorer-enhanced.files.followLnkLinks": {
+            "order": 2,
+            "type": "boolean",
+            "default": false,
+            "markdownDescription": "When enabled on **Windows**, opening a `.lnk` shortcut from **Files** or the context menu opens the **shortcut target** (via PowerShell / WScript.Shell) instead of the binary `.lnk` file. If resolution fails, the `.lnk` is opened as usual. No effect on macOS or Linux."
           }
         }
       }

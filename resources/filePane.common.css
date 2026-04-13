@@ -66,7 +66,7 @@ body {
 .files-grid-head-wrap {
   flex-shrink: 0;
   margin: 1px;
-  padding: 0 8px 0 8px;
+  padding: 0 calc(8px + var(--explorer-enhanced-files-scrollbar-w, 0px)) 0 8px;
   background: var(--explorer-enhanced-files-pane-bg);
   border-bottom: 1px solid var(--vscode-widget-border, rgba(127,127,127,0.3));
 }
@@ -436,10 +436,10 @@ th { user-select: none; font-weight: 600; }
   height: 26px;
 }
 #grid tbody tr[data-path].files-open-in-editor:not(.editor-active) > td {
-  background: var(--vscode-list-inactiveSelectionBackground, rgba(127, 127, 127, 0.22));
+  color: var(--vscode-textLink-foreground);
 }
-#grid tbody tr[data-path].files-open-in-editor:not(.editor-active):hover > td {
-  background: var(--vscode-list-hoverBackground);
+.files-icon-tile.files-open-in-editor:not(.editor-active) {
+  color: var(--vscode-textLink-foreground);
 }
 #grid tbody tr[data-path].editor-active > td {
   background: var(--vscode-list-activeSelectionBackground);
@@ -498,6 +498,17 @@ td.name-cell .file-name {
   white-space: nowrap;
   line-height: 18px;
 }
+/* Symlink/junction: codicon replaces SVG icon for symlink entries. */
+.file-icon .codicon-file-symlink-file,
+.file-icon .codicon-file-symlink-directory,
+.files-icon-tile-ico .codicon-file-symlink-file,
+.files-icon-tile-ico .codicon-file-symlink-directory {
+  font-size: 16px;
+  line-height: 1;
+  display: block;
+}
+.codicon-file-symlink-directory { color: #dcb67a; }
+.codicon-file-symlink-file { color: #6d8086; }
 /* Name segments matching the filter: VS Code theme variables only. */
 .explorer-enhanced-name-filter-match {
   border-radius: 2px;
