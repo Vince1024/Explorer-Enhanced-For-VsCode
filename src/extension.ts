@@ -422,6 +422,16 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         moveWorkspaceRootRelative(it, 1);
       }
+    ),
+    vscode.commands.registerCommand(
+      "explorer-enhanced.ctx.folder.removeFromWorkspace",
+      (item: FolderTreeItem | undefined) => {
+        const it = item ?? treeView.selection[0];
+        if (!it?.uri || it.isFileEntry) {
+          return;
+        }
+        void actions.removeFolderFromWorkspace(it.uri);
+      }
     )
   );
 

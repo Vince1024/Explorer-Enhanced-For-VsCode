@@ -8,15 +8,12 @@ import type { FolderTreeItem } from "./folderTreeDataProvider";
  */
 const FOLDER_TREE_MIME = "application/vnd.code.tree.explorer-enhanced.foldertree";
 
-function isWorkspaceRootRow(item: FolderTreeItem): boolean {
+/** Whether the Folders tree row is a top-level multi-root workspace folder (not a subfolder). */
+export function isWorkspaceRootRow(item: FolderTreeItem): boolean {
   if (item.isFileEntry) {
     return false;
   }
-  const wf = vscode.workspace.getWorkspaceFolder(item.uri);
-  if (!wf) {
-    return false;
-  }
-  return path.normalize(item.uri.fsPath) === path.normalize(wf.uri.fsPath);
+  return item.isWorkspaceRootFolder;
 }
 
 function workspaceFolderIndex(uri: vscode.Uri): number {

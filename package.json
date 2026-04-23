@@ -232,6 +232,10 @@
         "icon": "$(arrow-down)"
       },
       {
+        "command": "explorer-enhanced.ctx.folder.removeFromWorkspace",
+        "title": "Remove Folder from Workspace"
+      },
+      {
         "command": "explorer-enhanced.filesPane.renameSelection",
         "title": "Rename Files pane selection (keyboard)",
         "category": "Explorer Enhanced"
@@ -345,6 +349,10 @@
           "when": "false"
         },
         {
+          "command": "explorer-enhanced.ctx.folder.removeFromWorkspace",
+          "when": "false"
+        },
+        {
           "command": "explorer-enhanced.filesPane.renameSelection",
           "when": "false"
         },
@@ -368,77 +376,82 @@
       "view/item/context": [
         {
           "command": "explorer-enhanced.ctx.folder.newFile",
-          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.folder",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot)",
           "group": "navigation@1"
         },
         {
           "command": "explorer-enhanced.ctx.folder.newFolder",
-          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.folder",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot)",
           "group": "navigation@2"
         },
         {
           "command": "explorer-enhanced.ctx.folder.refresh",
-          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.folder",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot)",
           "group": "navigation@10"
         },
         {
           "command": "explorer-enhanced.ctx.folder.moveWorkspaceRootUp",
-          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.folder && explorer-enhanced.multiRootWorkspace",
+          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.workspaceRoot && explorer-enhanced.multiRootWorkspace",
           "group": "8_workspace@1"
         },
         {
           "command": "explorer-enhanced.ctx.folder.moveWorkspaceRootDown",
-          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.folder && explorer-enhanced.multiRootWorkspace",
+          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.workspaceRoot && explorer-enhanced.multiRootWorkspace",
           "group": "8_workspace@2"
         },
         {
+          "command": "explorer-enhanced.ctx.folder.removeFromWorkspace",
+          "when": "view == explorer-enhanced.folderTree && viewItem == explorer-enhanced.workspaceRoot && explorer-enhanced.multiRootWorkspace",
+          "group": "8_workspace@3"
+        },
+        {
           "command": "explorer-enhanced.ctx.folder.revealInExplorer",
-          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot || viewItem == explorer-enhanced.treeFile)",
           "group": "3_open@1"
         },
         {
           "command": "explorer-enhanced.ctx.folder.revealInOs.win",
-          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile) && isWindows",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot || viewItem == explorer-enhanced.treeFile) && isWindows",
           "group": "3_open@2"
         },
         {
           "command": "explorer-enhanced.ctx.folder.revealInOs.macos",
-          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile) && isMac",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot || viewItem == explorer-enhanced.treeFile) && isMac",
           "group": "3_open@2"
         },
         {
           "command": "explorer-enhanced.ctx.folder.revealInOs.linux",
-          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile) && isLinux",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot || viewItem == explorer-enhanced.treeFile) && isLinux",
           "group": "3_open@2"
         },
         {
           "command": "explorer-enhanced.ctx.folder.revealInOs.other",
-          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile) && !isWindows && !isMac && !isLinux",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot || viewItem == explorer-enhanced.treeFile) && !isWindows && !isMac && !isLinux",
           "group": "3_open@2"
         },
         {
           "command": "explorer-enhanced.ctx.folder.openInTerminal",
-          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot || viewItem == explorer-enhanced.treeFile)",
           "group": "3_open@5"
         },
         {
           "command": "explorer-enhanced.ctx.folder.copyPath",
-          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot || viewItem == explorer-enhanced.treeFile)",
           "group": "5_cutcopypaste@1"
         },
         {
           "command": "explorer-enhanced.ctx.folder.copyRelativePath",
-          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot || viewItem == explorer-enhanced.treeFile)",
           "group": "5_cutcopypaste@2"
         },
         {
           "command": "explorer-enhanced.ctx.folder.rename",
-          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot || viewItem == explorer-enhanced.treeFile)",
           "group": "7_modification@1"
         },
         {
           "command": "explorer-enhanced.ctx.folder.delete",
-          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.treeFile)",
+          "when": "view == explorer-enhanced.folderTree && (viewItem == explorer-enhanced.folder || viewItem == explorer-enhanced.workspaceRoot || viewItem == explorer-enhanced.treeFile)",
           "group": "7_modification@2"
         }
       ]

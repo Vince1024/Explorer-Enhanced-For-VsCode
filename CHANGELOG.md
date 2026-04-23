@@ -7,6 +7,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 > [!NOTE]
 > Release entries are **newest first** (recommended by Keep a Changelog). Older bullets may reference git tags `v0.0.1`–`v0.0.8` (commit SHAs in parentheses); **`v1.0.1`** is the first stable major line; **patch** releases (ex. `v1.0.2`) are bumped by CI on publish.
 
+## [1.0.6] - 2026-04-XX
+
+### Added
+
+- **Folders** tree: **Remove Folder from Workspace** on workspace **root** rows when the window has more than one root folder (`explorerContextActions.removeFolderFromWorkspace`, `explorer-enhanced.ctx.folder.removeFromWorkspace`, `package.json`).
+
+### Fixed
+
+- **Folders** tree: **Move Workspace Folder Up / Down** context actions now appear only on **root** rows (not nested folders), via `viewItem == explorer-enhanced.workspaceRoot` (`folderTreeDataProvider.ts`, `folderTreeDragAndDropController.ts`, `package.json`).
+
+## [1.0.5] - 2026-04-13
+
+### Changed
+
+- **CI:** workflow **Publish Open VSX only** (`workflow_dispatch`) republishes an existing release VSIX to Open VSX without a semver bump; README documents retry vs full deploy (`Publish-OpenVSX-only.yml`).
+
 ## [1.0.4] - 2026-04-13
 
 ### Added
@@ -20,7 +36,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Highlight open files** now uses a **text color** (`--vscode-textLink-foreground`) instead of a background fill — lighter on the UI. Applies to list, details, and icons layouts (`filePane.common.css`).
 - **Path hint** no longer shows the `Files: ` prefix. Drive letters are capitalized (`c:\` → `C:\`). Copy (`Ctrl+C`) on the breadcrumb now copies the **selected text** when a partial selection exists; falls back to the full path when nothing is selected (`filePane.js`).
 - **Docs:** README settings table and **Files** feature list updated for symlink codicons, open-file highlight styling, Git context actions, and **Follow .lnk links** (`README.md`).
-- **CI:** workflow **Publish Open VSX only** (`workflow_dispatch`) republishes an existing release VSIX to Open VSX without a semver bump; README documents retry vs full deploy (`Publish-OpenVSX-only.yml`).
 
 ### Fixed
 

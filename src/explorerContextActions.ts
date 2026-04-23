@@ -393,3 +393,29 @@ export async function addToNewCursorChat(uri: vscode.Uri): Promise<void> {
     "Could not add to a new chat: command not available."
   );
 }
+
+/** Removes a top-level workspace folder from the current workspace (multi-root only). */
+export function removeFolderFromWorkspace(uri: vscode.Uri): void {
+  const wfs = vscode.workspace.workspaceFolders;
+  if (!wfs || wfs.length < 2) {
+    void vscode.window.showInformationMessage(
+      "A workspace must contain more than one folder to remove a folder from it."
+    );
+    return;
+  }
+  const wf = vscode.workspace.getWorkspaceFolder(uri);
+  if (!wf) {
+    return;
+  }
+  if (path.normalize(uri.fsPath) !== path.normalize(wf.uri.fsPath)) {
+    void vscode.window.showInformationMessage(
+      "Only a top-level workspace folder can be removed from the workspace."
+    );
+    return;
+  }
+  const idx = wfs.findIndex((f) => path.normalize(f.uri.fsPath) === path.normalize(wf.uri.fsPath));
+  if (idx < 0) {
+    return;
+  }
+  vscode.workspace.updateWorkspaceFolders(idx, 1);
+}

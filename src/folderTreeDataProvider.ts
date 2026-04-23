@@ -93,7 +93,9 @@ export class FolderTreeItem extends vscode.TreeItem {
     label: string,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState,
     /** Leaf file row in Folders (not a directory in the tree model). */
-    public readonly isFileEntry = false
+    public readonly isFileEntry = false,
+    /** Top-level workspace folder row (multi-root root), not a subfolder. */
+    public readonly isWorkspaceRootFolder = false
   ) {
     super(label, collapsibleState);
     if (this.isFileEntry) {
@@ -108,7 +110,9 @@ export class FolderTreeItem extends vscode.TreeItem {
       };
     } else {
       this.id = "explorer-enhanced.folder:" + cacheKey(uri);
-      this.contextValue = "explorer-enhanced.folder";
+      this.contextValue = isWorkspaceRootFolder
+        ? "explorer-enhanced.workspaceRoot"
+        : "explorer-enhanced.folder";
       this.iconPath = vscode.ThemeIcon.Folder;
     }
     this.tooltip = uri.fsPath;
@@ -374,7 +378,7 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
     const hasKids = await this.directoryHasVisibleChildren(folderUri);
     const state = collapsibleIfExpandable(hasKids);
     if (targetNorm === rootNorm) {
-      return new FolderTreeItem(wf.uri, wf.name, state);
+      return new FolderTreeItem(wf.uri, wf.name, state, false, true);
     }
     return new FolderTreeItem(vscode.Uri.file(targetNorm), path.basename(targetNorm), state);
   }
@@ -440,7 +444,9 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
               return new FolderTreeItem(
                 wf.uri,
                 wf.name,
-                collapsibleIfExpandable(dirs.length > 0)
+                collapsibleIfExpandable(dirs.length > 0),
+                false,
+                true
               );
             });
             void this._revalidateRoots(folders);
@@ -463,7 +469,8 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
             wf.uri,
             wf.name,
             collapsibleIfExpandable(this._rootHasVisibleChildren(entries, showFilesInFolderTree)),
-            false
+            false,
+            true
           );
         })
       );
@@ -504,6 +511,8 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
       ? wf.name
       : parentUri.fsPath.split(/[/\\]/).filter(Boolean).pop() ?? parentUri.fsPath;
     const hasKids = await this.directoryHasVisibleChildren(parentUri);
-    return new FolderTreeItem(parentUri, name, collapsibleIfExpandable(hasKids));
+    const isWorkspaceRootRow =
+      path.normalize(parentUri.fsPath) === path.normalize(wf.uri.fsPath);
+    return new FolderTreeItem(parentUri, name, collapsibleIfExpandable(hasKids), false, isWorkspaceRootRow);
   }
 }

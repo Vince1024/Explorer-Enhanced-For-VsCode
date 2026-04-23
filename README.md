@@ -13,7 +13,7 @@ Folder-first navigation for VS Code: a dedicated activity bar container with a *
 <p align="center">
   <img src="images/Full-View.png" alt="Explorer Enhanced: Folders and Files (Details layout)" width="50%" />
 </p>
-<p align="center"><sub><em><strong>Details</strong> layout: Folders tree + Files table (name, modified, size). Optional <code>images/overview.png</code> can be added later for a wider marketing shot.</em></sub></p>
+<p align="center"><sub><em><strong>Details</strong> layout: Folders tree + Files table (name, modified, size).</em></sub></p>
 
 ### Files Features/Options
 
