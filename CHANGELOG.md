@@ -7,7 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 > [!NOTE]
 > Release entries are **newest first** (recommended by Keep a Changelog). Older bullets may reference git tags `v0.0.1`–`v0.0.8` (commit SHAs in parentheses); **`v1.0.1`** is the first stable major line; **patch** releases (ex. `v1.0.2`) are bumped by CI on publish.
 
-## [1.0.6] - 2026-04-XX
+## [1.0.7] - 2026-05-21
+
+### Fixed
+
+- **Folders / Files sync:** fixed intermittent “frozen” navigation where the first folder click did nothing until switching away from Explorer Enhanced and back. Replaced a one-shot `skip` flag (could stay set if `reveal` did not emit selection) with `shouldPreserveContentSearchForTreeSelection` (only keeps the content-search listing when the tree selection matches the active editor); tree-driven `showFolder` now always uses `forceImmediate` (`extension.ts`, `filePaneViewProvider.ts`).
+- **Folders tree:** avoid `Element … is already registered` during **Select Active File** by waiting for debounced tree refresh to settle before `treeView.reveal`, and single-flight `syncFolderTreeToActiveEditor` (`folderTreeDataProvider.scheduleRefresh` / `whenRefreshSettled`, `extension.ts`).
+- **Performance:** fewer full Folders tree rebuilds — FS bumps use debounced `scheduleRefresh`, file-only/Git mutations use `filesOnly` when the tree does not list files (`extension.ts`, `filePaneViewProvider.ts`).
+- **Files** webview: repaint when returning to Explorer Enhanced after another Activity Bar view (Git, built-in Explorer, etc.) — clears stale state signature and runs `showFolder` immediately; Folders visibility also re-syncs the Files listing from the tree selection (`filePaneViewProvider.ts`, `extension.ts`).
+
+## [1.0.6] - 2026-04-23
 
 ### Added
 

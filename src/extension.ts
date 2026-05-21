@@ -134,12 +134,31 @@ export function activate(context: vscode.ExtensionContext): void {
   const filePaneHost: { current?: FilePaneViewProvider } = {};
   const bumpAfterFsChange = (scope: "both" | "filesOnly" = "both"): void => {
     if (scope === "both") {
-      folderData.refresh();
+      folderData.scheduleRefresh();
     }
     const p = filePaneHost.current;
     if (p) {
       void p.showFolder(p.getLastFolderUri());
     }
+  };
+
+  const scopeForResourceTreeBump = async (uri: vscode.Uri): Promise<"both" | "filesOnly"> => {
+    if (getShowFilesInFolderTreeFromWorkspaceState(context.workspaceState)) {
+      return "both";
+    }
+    try {
+      const st = await vscode.workspace.fs.stat(uri);
+      if (isFsDirectory(st.type)) {
+        return "both";
+      }
+    } catch {
+      return "both";
+    }
+    return "filesOnly";
+  };
+
+  const bumpAfterResourceChange = (uri: vscode.Uri): void => {
+    void scopeForResourceTreeBump(uri).then((scope) => bumpAfterFsChange(scope));
   };
 
   const treeView = vscode.window.createTreeView("explorer-enhanced.folderTree", {
@@ -160,6 +179,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!p) {
       return;
     }
+    await folderData.whenRefreshSettled();
     const item = await folderData.getTreeItemForFolderUri(folderUri);
     if (item) {
       try {
@@ -370,10 +390,14 @@ export function activate(context: vscode.ExtensionContext): void {
       );
     }),
     registerFolderCtx("explorer-enhanced.ctx.folder.newFile", (item) =>
-      actions.newFileInFolder(item.uri, bumpAfterFsChange)
+      actions.newFileInFolder(item.uri, () =>
+        bumpAfterFsChange(
+          getShowFilesInFolderTreeFromWorkspaceState(context.workspaceState) ? "both" : "filesOnly"
+        )
+      )
     ),
     registerFolderCtx("explorer-enhanced.ctx.folder.newFolder", (item) =>
-      actions.newFolderInFolder(item.uri, bumpAfterFsChange)
+      actions.newFolderInFolder(item.uri, () => bumpAfterFsChange("both"))
     ),
     vscode.commands.registerCommand("explorer-enhanced.ctx.folder.refresh", () => {
       folderData.refresh();
@@ -398,10 +422,10 @@ export function activate(context: vscode.ExtensionContext): void {
       actions.copyRelativePath(item.uri)
     ),
     registerFolderCtx("explorer-enhanced.ctx.folder.rename", (item) =>
-      actions.renameResource(item.uri, bumpAfterFsChange)
+      actions.renameResource(item.uri, () => bumpAfterResourceChange(item.uri))
     ),
     registerFolderCtx("explorer-enhanced.ctx.folder.delete", (item) =>
-      actions.deleteResource(item.uri, bumpAfterFsChange)
+      actions.deleteResource(item.uri, () => bumpAfterResourceChange(item.uri))
     ),
     vscode.commands.registerCommand(
       "explorer-enhanced.ctx.folder.moveWorkspaceRootUp",
@@ -436,22 +460,30 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   const syncFilesToFolderSelection = (): void => {
-    if (filePane.consumeSkipFilesListingSyncOnNextTreeSelection()) {
-      return;
-    }
     const sel = treeView.selection[0];
     if (sel) {
       const folderUri = sel.isFileEntry ? vscode.Uri.file(path.dirname(sel.uri.fsPath)) : sel.uri;
-      void filePane.showFolder(folderUri);
+      if (
+        filePane.shouldPreserveContentSearchForTreeSelection(
+          folderUri,
+          sel.isFileEntry,
+          sel.isFileEntry ? sel.uri : undefined
+        )
+      ) {
+        return;
+      }
+      void filePane.showFolder(folderUri, true);
     } else {
-      void filePane.showFolder(undefined);
+      void filePane.showFolder(undefined, true);
     }
   };
 
   let syncFolderTreeDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  let syncFolderTreeToActiveEditorGeneration = 0;
 
   /** Select + expand the folder that contains the active editor file (reciprocal of Files highlight). */
   const syncFolderTreeToActiveEditor = async (): Promise<void> => {
+    const ticket = ++syncFolderTreeToActiveEditorGeneration;
     /** Never sync when Explorer Enhanced is not the active sidebar activity (`reveal` would show this view). */
     if (!treeView.visible) {
       return;
@@ -461,6 +493,10 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const docUri = getActiveWorkspaceFileUri();
     if (!docUri) {
+      return;
+    }
+    await folderData.whenRefreshSettled();
+    if (ticket !== syncFolderTreeToActiveEditorGeneration) {
       return;
     }
     const showFilesInTree = getShowFilesInFolderTreeFromWorkspaceState(context.workspaceState);
@@ -476,16 +512,16 @@ export function activate(context: vscode.ExtensionContext): void {
       const fileItem = await folderData.getTreeItemForFileUri(docUri);
       if (fileItem) {
         try {
-          if (filePane.isContentSearchSessionActive()) {
-            filePane.markSkipFilesListingSyncOnNextTreeSelection();
-          }
           await treeView.reveal(fileItem, { select: true, focus: false, expand: true });
           return;
         } catch {
-          filePane.clearSkipFilesListingSyncMarker();
           /* Tree not ready or node missing — fall back to folder below */
         }
       }
+    }
+
+    if (ticket !== syncFolderTreeToActiveEditorGeneration) {
+      return;
     }
 
     let folderFs = path.normalize(path.dirname(docUri.fsPath));
@@ -497,13 +533,12 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!item) {
       return;
     }
+    if (ticket !== syncFolderTreeToActiveEditorGeneration) {
+      return;
+    }
     try {
-      if (filePane.isContentSearchSessionActive()) {
-        filePane.markSkipFilesListingSyncOnNextTreeSelection();
-      }
       await treeView.reveal(item, { select: true, focus: false, expand: true });
     } catch {
-      filePane.clearSkipFilesListingSyncMarker();
       /* Item not yet in model or view hidden — ignore */
     }
   };
@@ -544,6 +579,7 @@ export function activate(context: vscode.ExtensionContext): void {
           clearTimeout(syncFolderTreeDebounceTimer);
           syncFolderTreeDebounceTimer = undefined;
         }
+        syncFilesToFolderSelection();
         runSyncFolderTreeToActiveEditor();
       }
     }),

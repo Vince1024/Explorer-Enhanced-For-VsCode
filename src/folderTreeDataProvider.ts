@@ -9,6 +9,10 @@ const LIST_DIR_CONCURRENCY = 32;
 
 const MEMENTO_KEY = "explorer-enhanced.folderTree.snapshot.v1";
 const PERSIST_DEBOUNCE_MS = 800;
+/** Coalesce bursty `refresh()` calls from FS/Git bumps before the tree rebuilds. */
+export const FOLDER_TREE_REFRESH_DEBOUNCE_MS = 80;
+/** Quiet period after {@link refresh} before `treeView.reveal` (avoids duplicate tree node ids). */
+const FOLDER_TREE_REFRESH_SETTLE_MS = 50;
 
 function collapsibleIfExpandable(hasExpandableChildren: boolean): vscode.TreeItemCollapsibleState {
   return hasExpandableChildren
@@ -135,6 +139,10 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
 
   private _persistTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly _pendingNodeUpdates = new Map<string, PersistedSubdir[]>();
+  private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly _refreshDebounceWaiters: Array<() => void> = [];
+  private _refreshGeneration = 0;
+  private _refreshSettleTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly _workspaceState: vscode.Memento) {}
 
@@ -163,9 +171,30 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
       clearTimeout(this._persistTimer);
       this._persistTimer = undefined;
     }
+    if (this._refreshDebounceTimer !== undefined) {
+      clearTimeout(this._refreshDebounceTimer);
+      this._refreshDebounceTimer = undefined;
+    }
     if (this._pendingNodeUpdates.size > 0) {
       this._runPersist();
     }
+  }
+
+  /**
+   * Debounced {@link refresh} for high-frequency FS signals; user commands should call {@link refresh} directly.
+   */
+  scheduleRefresh(): void {
+    if (this._refreshDebounceTimer !== undefined) {
+      clearTimeout(this._refreshDebounceTimer);
+    }
+    this._refreshDebounceTimer = setTimeout(() => {
+      this._refreshDebounceTimer = undefined;
+      const waiters = this._refreshDebounceWaiters.splice(0);
+      this.refresh();
+      for (const done of waiters) {
+        done();
+      }
+    }, FOLDER_TREE_REFRESH_DEBOUNCE_MS);
   }
 
   refresh(): void {
@@ -176,7 +205,30 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
       clearTimeout(this._persistTimer);
       this._persistTimer = undefined;
     }
+    const generation = ++this._refreshGeneration;
     this._onDidChange.fire();
+    this._refreshSettleTail = this._refreshSettleTail.then(
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            if (this._refreshGeneration === generation) {
+              resolve();
+            } else {
+              resolve();
+            }
+          }, FOLDER_TREE_REFRESH_SETTLE_MS);
+        })
+    );
+  }
+
+  /** Wait until debounced refresh (if any) has run and the tree has been quiet briefly. */
+  async whenRefreshSettled(): Promise<void> {
+    if (this._refreshDebounceTimer !== undefined) {
+      await new Promise<void>((resolve) => {
+        this._refreshDebounceWaiters.push(resolve);
+      });
+    }
+    await this._refreshSettleTail;
   }
 
   private _loadSnapshot(): PersistedSnapshot | undefined {

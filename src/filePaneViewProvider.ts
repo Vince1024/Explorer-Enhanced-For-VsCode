@@ -22,6 +22,7 @@ import {
   getShowGitInFilesFromWorkspaceState,
   getShowProblemsInFilesFromWorkspaceState,
   getSelectActiveFileFromWorkspaceState,
+  getShowFilesInFolderTreeFromWorkspaceState,
   setHighlightOpenFiles,
   setSelectActiveFile,
   setShowPath,
@@ -134,12 +135,6 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
 
   /** Last "search in files" request (filter field, content mode). */
   private _contentSearchQuery = "";
-  /**
-   * When true, the next Folders tree selection event must not drive `showFolder` (see
-   * {@link FilePaneViewProvider.markSkipFilesListingSyncOnNextTreeSelection}).
-   */
-  private _skipNextTreeSelectionFilesSync = false;
-
   /**
    * Last file opened from the Files pane (single / double click). Used for F2 / Delete shortcuts
    * when focus is in the editor (the webview no longer receives keys).
@@ -462,14 +457,15 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     if (!this._computeFilesPaneKbBindFolder() && !this._computeFilesPaneKbBindFile()) {
       return;
     }
-    const bump = (): void => this._onFsChange("both");
     try {
       if (this._filesPaneKbFolderRowFsPath) {
-        await actions.renameResource(vscode.Uri.file(this._filesPaneKbFolderRowFsPath), bump);
+        const u = vscode.Uri.file(this._filesPaneKbFolderRowFsPath);
+        await actions.renameResource(u, () => this._bumpAfterResourceChange(u));
         return;
       }
       if (this._filesPaneKbFileFsPath) {
-        await actions.renameResource(vscode.Uri.file(this._filesPaneKbFileFsPath), bump);
+        const u = vscode.Uri.file(this._filesPaneKbFileFsPath);
+        await actions.renameResource(u, () => this._bumpAfterResourceChange(u));
       }
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
@@ -481,14 +477,15 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     if (!this._computeFilesPaneKbBindFolder() && !this._computeFilesPaneKbBindFile()) {
       return;
     }
-    const bump = (): void => this._onFsChange("both");
     try {
       if (this._filesPaneKbFolderRowFsPath) {
-        await actions.deleteResource(vscode.Uri.file(this._filesPaneKbFolderRowFsPath), bump);
+        const u = vscode.Uri.file(this._filesPaneKbFolderRowFsPath);
+        await actions.deleteResource(u, () => this._bumpAfterResourceChange(u));
         return;
       }
       if (this._filesPaneKbFileFsPath) {
-        await actions.deleteResource(vscode.Uri.file(this._filesPaneKbFileFsPath), bump);
+        const u = vscode.Uri.file(this._filesPaneKbFileFsPath);
+        await actions.deleteResource(u, () => this._bumpAfterResourceChange(u));
       }
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
@@ -619,22 +616,64 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Skip one `showFolder` from the next tree `onDidChangeSelection` (used when editor-driven `reveal` would
-   * select a subfolder and clear the active content-search listing).
+   * While a **content search** session is active, keep the Files listing when the Folders tree
+   * selection only reflects the active editor (Select Active File / reveal). Any other folder
+   * selection updates the Files pane immediately.
    */
-  markSkipFilesListingSyncOnNextTreeSelection(): void {
-    this._skipNextTreeSelectionFilesSync = true;
+  shouldPreserveContentSearchForTreeSelection(
+    folderUri: vscode.Uri | undefined,
+    treeSelectionIsFileEntry: boolean,
+    treeSelectionUri: vscode.Uri | undefined
+  ): boolean {
+    if (!this.isContentSearchSessionActive() || !folderUri) {
+      return false;
+    }
+    const searchRoot = this._lastFolderUri;
+    if (!searchRoot) {
+      return false;
+    }
+    const root = path.normalize(searchRoot.fsPath);
+    const target = path.normalize(folderUri.fsPath);
+    const sep = path.sep;
+    if (target !== root && !target.startsWith(root + sep)) {
+      return false;
+    }
+    const docUri = getActiveWorkspaceFileUri();
+    if (!docUri) {
+      return false;
+    }
+    const docNorm = path.normalize(docUri.fsPath);
+    if (treeSelectionIsFileEntry && treeSelectionUri) {
+      return path.normalize(treeSelectionUri.fsPath) === docNorm;
+    }
+    return target === path.normalize(path.dirname(docNorm));
   }
 
-  consumeSkipFilesListingSyncOnNextTreeSelection(): boolean {
-    const v = this._skipNextTreeSelectionFilesSync;
-    this._skipNextTreeSelectionFilesSync = false;
-    return v;
+  private _bumpAfterNewFile(): void {
+    this._onFsChange(
+      getShowFilesInFolderTreeFromWorkspaceState(this._context.workspaceState) ? "both" : "filesOnly"
+    );
   }
 
-  /** Clears {@link FilePaneViewProvider.markSkipFilesListingSyncOnNextTreeSelection} if `reveal` failed. */
-  clearSkipFilesListingSyncMarker(): void {
-    this._skipNextTreeSelectionFilesSync = false;
+  private _bumpAfterNewFolder(): void {
+    this._onFsChange("both");
+  }
+
+  private _bumpAfterResourceChange(uri: vscode.Uri): void {
+    void (async (): Promise<void> => {
+      let scope: "both" | "filesOnly" = "both";
+      if (!getShowFilesInFolderTreeFromWorkspaceState(this._context.workspaceState)) {
+        try {
+          const st = await vscode.workspace.fs.stat(uri);
+          if (!isFsDirectory(st.type)) {
+            scope = "filesOnly";
+          }
+        } catch {
+          /* keep both */
+        }
+      }
+      this._onFsChange(scope);
+    })();
   }
 
   private _isDirectFileChild(file: vscode.Uri, folder: vscode.Uri): boolean {
@@ -693,13 +732,12 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       webviewView.onDidChangeVisibility(() => {
         if (webviewView.visible) {
           this._cancelShowFolderDebounce();
-          if (this._refreshDirtyWhenHidden) {
-            this._refreshDirtyWhenHidden = false;
-            void this.showFolder(this._lastFolderUri, true);
-            return;
-          }
-          void this._requestShowFolderFlush();
+          this._refreshDirtyWhenHidden = false;
+          /* Webview DOM is often cleared while hidden; always repaint (do not rely on signature dedup). */
+          this._lastPostedStateSignature = undefined;
+          void this.showFolder(this._lastFolderUri, true);
           this._syncOpenEditorsHighlight();
+          this._postEditorSelectionToWebview();
         }
       }),
       webviewView.onDidDispose(() => {
@@ -1140,7 +1178,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async _runCtxAction(action: string, uri: vscode.Uri): Promise<void> {
-    const bump = (): void => this._onFsChange("both");
+    const bumpGit = (): void => this._onFsChange("filesOnly");
     switch (action) {
       case "open": {
         const hl = this._contentSearchHighlightQueryForOpen();
@@ -1196,10 +1234,10 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         await actions.addToNewCursorChat(uri);
         return;
       case "newFile":
-        await actions.newFileInFolder(uri, bump);
+        await actions.newFileInFolder(uri, () => this._bumpAfterNewFile());
         return;
       case "newFolder":
-        await actions.newFolderInFolder(uri, bump);
+        await actions.newFolderInFolder(uri, () => this._bumpAfterNewFolder());
         return;
       case "copyPath":
         await actions.copyPath(uri);
@@ -1208,22 +1246,22 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         await actions.copyRelativePath(uri);
         return;
       case "rename":
-        await actions.renameResource(uri, bump);
+        await actions.renameResource(uri, () => this._bumpAfterResourceChange(uri));
         return;
       case "delete":
-        await actions.deleteResource(uri, bump);
+        await actions.deleteResource(uri, () => this._bumpAfterResourceChange(uri));
         return;
       case "gitStage":
         await actions.gitStage(uri);
-        bump();
+        bumpGit();
         return;
       case "gitUnstage":
         await actions.gitUnstage(uri);
-        bump();
+        bumpGit();
         return;
       case "gitDiscard":
         await actions.gitDiscard(uri);
-        bump();
+        bumpGit();
         return;
       default:
         return;
