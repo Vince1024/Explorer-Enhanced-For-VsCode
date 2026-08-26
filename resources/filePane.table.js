@@ -51,7 +51,7 @@
   function loadSortState() {
     const s = vscodeApi.getState() || {};
     const x = s[SORT_STATE_KEY];
-    if (x && ['name', 'mtime', 'size'].includes(x.key) && (x.dir === 'asc' || x.dir === 'desc')) {
+    if (x && ['name', 'mtime', 'size', 'status'].includes(x.key) && (x.dir === 'asc' || x.dir === 'desc')) {
       return { key: x.key, dir: x.dir };
     }
     return { key: 'name', dir: 'asc' };
@@ -190,7 +190,16 @@
     if (sortState.key === 'mtime') {
       return (a.mtime || 0) - (b.mtime || 0);
     }
+    if (sortState.key === 'status') {
+      const diff = GitBadges.rowStatusSortKey(a) - GitBadges.rowStatusSortKey(b);
+      if (diff !== 0) return diff;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    }
     return (a.size || 0) - (b.size || 0);
+  }
+
+  function statusSortEnabled() {
+    return !!(getShowGitStatus && getShowGitStatus()) || !!(getShowProblemsInFiles && getShowProblemsInFiles());
   }
 
   function appendProbBadge(wrap, n, cls, titleSuffix) {
@@ -408,7 +417,8 @@
       const th = e.target.closest('th[data-sort]');
       if (!th) return;
       const key = th.getAttribute('data-sort');
-      if (key !== 'name' && key !== 'mtime' && key !== 'size') return;
+      if (key !== 'name' && key !== 'mtime' && key !== 'size' && key !== 'status') return;
+      if (key === 'status' && !statusSortEnabled()) return;
       if (sortState.key === key) {
         sortState = { key, dir: sortState.dir === 'asc' ? 'desc' : 'asc' };
       } else {
@@ -433,6 +443,9 @@
     dateTimeCustomPattern =
       typeof opts.dateTimeCustomPatternBoot === 'string' ? opts.dateTimeCustomPatternBoot : '';
     sortState = loadSortState();
+    if (sortState.key === 'status' && !statusSortEnabled()) {
+      sortState = { key: 'name', dir: 'asc' };
+    }
     wireSortHeaderClick();
   }
 

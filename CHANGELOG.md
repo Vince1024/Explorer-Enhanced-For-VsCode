@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 > [!NOTE]
 > Release entries are **newest first** (recommended by Keep a Changelog). Older bullets may reference git tags `v0.0.1`–`v0.0.8` (commit SHAs in parentheses); **`v1.0.1`** is the first stable major line; **patch** releases (ex. `v1.0.2`) are bumped by CI on publish.
 
+## [1.0.8] - 2026-08-26
+
+### Added
+
+- **Files:** click the **Status** column header to sort by Git status (and Problems when enabled) — changed / untracked files rise to the top on first click (descending); persists in webview state. Requested by [@snowgato](https://github.com/snowgato) ([#1](https://github.com/Vince1024/Explorer-Enhanced-For-VsCode/issues/1)) (`filePane.shell.html`, `filePane.gitBadges.js`, `filePane.table.js`).
+
 ## [1.0.7] - 2026-05-21
 
 ### Fixed

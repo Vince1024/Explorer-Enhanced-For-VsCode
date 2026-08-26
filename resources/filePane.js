@@ -175,8 +175,9 @@ function updateStatusHeaderLabel() {
     t = 'pb';
   }
   labelEl.textContent = t;
-  thEl.title = t;
-  thEl.setAttribute('aria-label', t ? 'Status (' + t + ')' : 'Status');
+  const sortHint = t ? ', click to sort' : '';
+  thEl.title = t ? t + sortHint : 'Status';
+  thEl.setAttribute('aria-label', t ? 'Status (' + t + ')' + sortHint : 'Status');
 }
 
 function rebuildOpenEditorPathsSet(paths) {
