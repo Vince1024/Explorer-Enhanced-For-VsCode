@@ -71,7 +71,7 @@ function validateSingleName(value: string): string | null {
   return null;
 }
 
-export async function newFileInFolder(parent: vscode.Uri, onChanged: () => void): Promise<void> {
+export async function newFileInFolder(parent: vscode.Uri, onChanged: (created: vscode.Uri) => void): Promise<void> {
   const name = await vscode.window.showInputBox({
     prompt: "File name",
     validateInput: validateSingleName,
@@ -89,10 +89,10 @@ export async function newFileInFolder(parent: vscode.Uri, onChanged: () => void)
     /* does not exist */
   }
   await vscode.workspace.fs.writeFile(target, new Uint8Array());
-  onChanged();
+  onChanged(target);
 }
 
-export async function newFolderInFolder(parent: vscode.Uri, onChanged: () => void): Promise<void> {
+export async function newFolderInFolder(parent: vscode.Uri, onChanged: (created: vscode.Uri) => void): Promise<void> {
   const name = await vscode.window.showInputBox({
     prompt: "Folder name",
     validateInput: validateSingleName,
@@ -110,10 +110,10 @@ export async function newFolderInFolder(parent: vscode.Uri, onChanged: () => voi
     /* does not exist */
   }
   await vscode.workspace.fs.createDirectory(target);
-  onChanged();
+  onChanged(target);
 }
 
-export async function renameResource(uri: vscode.Uri, onChanged: () => void): Promise<void> {
+export async function renameResource(uri: vscode.Uri, onChanged: (path: vscode.Uri) => void): Promise<void> {
   const base = path.basename(uri.fsPath);
   const next = await vscode.window.showInputBox({
     prompt: "New name",
@@ -137,10 +137,10 @@ export async function renameResource(uri: vscode.Uri, onChanged: () => void): Pr
     /* ok */
   }
   await vscode.workspace.fs.rename(uri, target);
-  onChanged();
+  onChanged(target);
 }
 
-export async function deleteResource(uri: vscode.Uri, onChanged: () => void): Promise<void> {
+export async function deleteResource(uri: vscode.Uri, onChanged: (path: vscode.Uri) => void): Promise<void> {
   const base = path.basename(uri.fsPath);
   let isDir = false;
   let nonEmptyDir = false;
@@ -170,7 +170,7 @@ export async function deleteResource(uri: vscode.Uri, onChanged: () => void): Pr
   }
 
   await vscode.workspace.fs.delete(uri, { recursive: isDir, useTrash: true });
-  onChanged();
+  onChanged(uri);
 }
 
 async function executeFirstCommand(

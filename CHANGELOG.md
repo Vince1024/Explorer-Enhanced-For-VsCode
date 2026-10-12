@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 > [!NOTE]
 > Release entries are **newest first** (recommended by Keep a Changelog). Older bullets may reference git tags `v0.0.1`–`v0.0.8` (commit SHAs in parentheses); **`v1.0.1`** is the first stable major line; **patch** releases (ex. `v1.0.2`) are bumped by CI on publish.
 
+## [1.0.10] - 2026-10-12
+
+### Fixed
+
+- **FS sync regression (1.0.9):** external create/delete (Explorer, Git, etc.) did not refresh Files/Folders — restore workspace-root create/delete watchers (ignore content changes), restore create/delete on the displayed-folder watcher, pass URIs on EE-driven bumps, invalidate listing on fallback refresh, defer Folders tree refresh only when both Folders and Files views are hidden (`extension.ts`, `filePaneViewProvider.ts`, `explorerContextActions.ts`).
+
 ## [1.0.9] - 2026-10-12
 
 ### Changed

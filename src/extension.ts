@@ -119,8 +119,11 @@ export function activate(context: vscode.ExtensionContext): void {
     dragAndDropController: createFolderTreeDragAndDropController(),
   });
 
+  const isExplorerEnhancedUiVisible = (): boolean =>
+    treeView.visible || (filePaneHost.current?.isViewVisible() ?? false);
+
   const scheduleFolderTreeRefresh = (): void => {
-    if (treeView.visible) {
+    if (isExplorerEnhancedUiVisible()) {
       folderData.scheduleRefresh();
     } else {
       folderTreeRefreshDirty = true;
@@ -141,7 +144,8 @@ export function activate(context: vscode.ExtensionContext): void {
     if (relatedUris && relatedUris.length > 0) {
       p.refreshAfterWorkspaceFsChange(relatedUris);
     } else {
-      void p.showFolder(p.getLastFolderUri());
+      p.invalidateFilesListingCache();
+      void p.showFolder(p.getLastFolderUri(), true);
     }
   };
 
@@ -172,12 +176,20 @@ export function activate(context: vscode.ExtensionContext): void {
     void p.showFolder(folderUri, true);
   };
 
+  const flushDeferredFolderTreeRefresh = (): void => {
+    if (folderTreeRefreshDirty) {
+      folderTreeRefreshDirty = false;
+      folderData.scheduleRefresh();
+    }
+  };
+
   filePaneHost.current = new FilePaneViewProvider(
     context,
     bumpAfterFsChange,
     gitFileStatus,
     navigateFilesToFolder,
-    () => notifySelectActiveFilePolicyChanged()
+    () => notifySelectActiveFilePolicyChanged(),
+    flushDeferredFolderTreeRefresh
   );
   const filePane = filePaneHost.current;
 
@@ -219,10 +231,33 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   /**
-   * First macrotask after `activate`: initial Folders/Files sync.
-   * FS changes use workspace `onDidCreateFiles` / `onDidDeleteFiles` / `onDidRenameFiles` only (recursive
-   * glob watchers were removed — they duplicated those events and amplified refresh load on large workspaces).
+   * Create/delete under each workspace root (ignore file content changes). Catches external tooling when
+   * `onDidCreateFiles` / `onDidDeleteFiles` are missing or delayed; coalesced with workspace events.
    */
+  const rootRecursiveWatchers: vscode.FileSystemWatcher[] = [];
+  const setupRootRecursiveWatchers = (): void => {
+    for (const w of rootRecursiveWatchers) {
+      w.dispose();
+    }
+    rootRecursiveWatchers.length = 0;
+    for (const wf of vscode.workspace.workspaceFolders ?? []) {
+      const pattern = new vscode.RelativePattern(wf, "**/*");
+      const w = vscode.workspace.createFileSystemWatcher(pattern, false, true, false);
+      w.onDidCreate((uri) => {
+        if (uriInWorkspace(uri)) {
+          scheduleBumpAfterFsChange({ kind: "create", uri });
+        }
+      });
+      w.onDidDelete((uri) => {
+        if (uriInWorkspace(uri)) {
+          scheduleBumpAfterFsChange({ kind: "delete", uri });
+        }
+      });
+      rootRecursiveWatchers.push(w);
+    }
+  };
+
+  /** First macrotask after `activate`: watchers + initial Folders/Files sync. */
   let startupKickoffTimer: ReturnType<typeof setTimeout> | undefined;
 
   const registerFolderCtx = (
@@ -253,6 +288,10 @@ export function activate(context: vscode.ExtensionContext): void {
         clearTimeout(startupKickoffTimer);
         startupKickoffTimer = undefined;
       }
+      for (const w of rootRecursiveWatchers) {
+        w.dispose();
+      }
+      rootRecursiveWatchers.length = 0;
     }),
     new vscode.Disposable(() => filePane.dispose()),
     treeView,
@@ -291,6 +330,7 @@ export function activate(context: vscode.ExtensionContext): void {
       syncExplorerEnhancedFolderContexts();
       folderData.refresh();
       updateFolderTreeChrome();
+      setupRootRecursiveWatchers();
       if ((vscode.workspace.workspaceFolders?.length ?? 0) === 0) {
         void filePane.showFolder(undefined);
       }
@@ -342,14 +382,14 @@ export function activate(context: vscode.ExtensionContext): void {
       );
     }),
     registerFolderCtx("explorer-enhanced.ctx.folder.newFile", (item) =>
-      actions.newFileInFolder(item.uri, () =>
-        bumpAfterFsChange(
-          getShowFilesInFolderTreeFromWorkspaceState(context.workspaceState) ? "both" : "filesOnly"
-        )
-      )
+      actions.newFileInFolder(item.uri, (target) => {
+        void classifyUrisForTreeBump([target], context.workspaceState).then((scope) =>
+          bumpAfterFsChange(scope, [target])
+        );
+      })
     ),
     registerFolderCtx("explorer-enhanced.ctx.folder.newFolder", (item) =>
-      actions.newFolderInFolder(item.uri, () => bumpAfterFsChange("both"))
+      actions.newFolderInFolder(item.uri, (target) => bumpAfterFsChange("both", [target]))
     ),
     vscode.commands.registerCommand("explorer-enhanced.ctx.folder.refresh", () => {
       folderData.refresh();
@@ -550,6 +590,7 @@ export function activate(context: vscode.ExtensionContext): void {
   /** One macrotask after `activate`: Folders/Files sync (see `startupKickoffTimer` dispose). */
   startupKickoffTimer = setTimeout(() => {
     startupKickoffTimer = undefined;
+    setupRootRecursiveWatchers();
     if (treeView.selection.length > 0) {
       syncFilesToFolderSelection();
     }

@@ -22,7 +22,6 @@ import {
   getShowGitInFilesFromWorkspaceState,
   getShowProblemsInFilesFromWorkspaceState,
   getSelectActiveFileFromWorkspaceState,
-  getShowFilesInFolderTreeFromWorkspaceState,
   setHighlightOpenFiles,
   setSelectActiveFile,
   setShowPath,
@@ -254,12 +253,14 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly _context: vscode.ExtensionContext,
     /** After rename/delete/new file from the Files webview, refresh Folders + file list. */
-    private readonly _onFsChange: (scope?: "both" | "filesOnly") => void,
+    private readonly _onFsChange: (scope?: "both" | "filesOnly", relatedUris?: readonly vscode.Uri[]) => void,
     private readonly _gitFileStatus: GitFileStatusService,
     /** Double-click folder row: sync Folders selection and show that folder in Files. */
     private readonly _onNavigateToFolder: (uri: vscode.Uri) => Promise<void>,
     /** After toggling “Select Active File”; extension re-runs Folders ↔ editor sync when applicable. */
-    private readonly _onSelectActiveFilePolicyChanged?: () => void
+    private readonly _onSelectActiveFilePolicyChanged?: () => void,
+    /** When the Files webview becomes visible (flush deferred Folders tree refresh). */
+    private readonly _onFilesViewBecameVisible?: () => void
   ) {
     this._context.subscriptions.push(
       vscode.window.onDidChangeActiveTextEditor(() => {
@@ -433,12 +434,12 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     try {
       if (this._filesPaneKbFolderRowFsPath) {
         const u = vscode.Uri.file(this._filesPaneKbFolderRowFsPath);
-        await actions.renameResource(u, () => this._bumpAfterResourceChange(u));
+        await actions.renameResource(u, (target) => this._bumpAfterResourceChange(target));
         return;
       }
       if (this._filesPaneKbFileFsPath) {
         const u = vscode.Uri.file(this._filesPaneKbFileFsPath);
-        await actions.renameResource(u, () => this._bumpAfterResourceChange(u));
+        await actions.renameResource(u, (target) => this._bumpAfterResourceChange(target));
       }
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
@@ -453,12 +454,12 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     try {
       if (this._filesPaneKbFolderRowFsPath) {
         const u = vscode.Uri.file(this._filesPaneKbFolderRowFsPath);
-        await actions.deleteResource(u, () => this._bumpAfterResourceChange(u));
+        await actions.deleteResource(u, (deleted) => this._bumpAfterResourceChange(deleted));
         return;
       }
       if (this._filesPaneKbFileFsPath) {
         const u = vscode.Uri.file(this._filesPaneKbFileFsPath);
-        await actions.deleteResource(u, () => this._bumpAfterResourceChange(u));
+        await actions.deleteResource(u, (deleted) => this._bumpAfterResourceChange(deleted));
       }
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
@@ -573,6 +574,10 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     return this._lastFolderUri;
   }
 
+  isViewVisible(): boolean {
+    return this._view?.visible === true;
+  }
+
   /**
    * Single entry for workspace FS bumps from {@link extension.ts} (no duplicate `onDidCreateFiles` listeners).
    * Refreshes Files only when paths touch the displayed folder; subtree-only changes debounce; unrelated paths noop.
@@ -641,21 +646,20 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     return target === path.normalize(path.dirname(docNorm));
   }
 
-  private _bumpAfterNewFile(): void {
-    this._onFsChange(
-      getShowFilesInFolderTreeFromWorkspaceState(this._context.workspaceState) ? "both" : "filesOnly"
+  private _bumpAfterNewFile(uri: vscode.Uri): void {
+    void classifyUrisForTreeBump([uri], this._context.workspaceState).then((scope) =>
+      this._onFsChange(scope, [uri])
     );
   }
 
-  private _bumpAfterNewFolder(): void {
-    this._onFsChange("both");
+  private _bumpAfterNewFolder(uri: vscode.Uri): void {
+    this._onFsChange("both", [uri]);
   }
 
   private _bumpAfterResourceChange(uri: vscode.Uri): void {
-    void (async (): Promise<void> => {
-      const scope = await classifyUrisForTreeBump([uri], this._context.workspaceState);
-      this._onFsChange(scope);
-    })();
+    void classifyUrisForTreeBump([uri], this._context.workspaceState).then((scope) =>
+      this._onFsChange(scope, [uri])
+    );
   }
 
   private _isDirectFileChild(file: vscode.Uri, folder: vscode.Uri): boolean {
@@ -695,6 +699,14 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     }
     const pattern = new vscode.RelativePattern(folderUri, "*");
     const w = vscode.workspace.createFileSystemWatcher(pattern);
+    const bumpCreateDelete = (uri: vscode.Uri): void => {
+      this._invalidateFolderSizeCacheForFsPaths([uri.fsPath]);
+      this._invalidateFilesListingCache();
+      this._requestRefreshCurrentFolder(true);
+      void classifyUrisForTreeBump([uri], this._context.workspaceState).then((scope) =>
+        this._onFsChange(scope, [uri])
+      );
+    };
     const bumpOnChange = (uri: vscode.Uri): void => {
       this._invalidateFolderSizeCacheForFsPaths([uri.fsPath]);
       if (this._folderWatcherChangeTimer !== undefined) {
@@ -706,6 +718,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         this._requestRefreshCurrentFolder(true);
       }, FOLDER_WATCHER_CHANGE_DEBOUNCE_MS);
     };
+    w.onDidCreate(bumpCreateDelete);
+    w.onDidDelete(bumpCreateDelete);
     w.onDidChange(bumpOnChange);
     this._folderWatcher = w;
   }
@@ -722,6 +736,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       webviewView.onDidChangeVisibility(() => {
         this._syncGitIncomingDiffPolicy();
         if (webviewView.visible) {
+          this._onFilesViewBecameVisible?.();
           this._cancelShowFolderDebounce();
           this._refreshDirtyWhenHidden = false;
           /* Webview DOM is often cleared while hidden; always repaint (do not rely on signature dedup). */
@@ -1244,10 +1259,10 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         await actions.addToNewCursorChat(uri);
         return;
       case "newFile":
-        await actions.newFileInFolder(uri, () => this._bumpAfterNewFile());
+        await actions.newFileInFolder(uri, (created) => this._bumpAfterNewFile(created));
         return;
       case "newFolder":
-        await actions.newFolderInFolder(uri, () => this._bumpAfterNewFolder());
+        await actions.newFolderInFolder(uri, (created) => this._bumpAfterNewFolder(created));
         return;
       case "copyPath":
         await actions.copyPath(uri);
@@ -1256,10 +1271,10 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         await actions.copyRelativePath(uri);
         return;
       case "rename":
-        await actions.renameResource(uri, () => this._bumpAfterResourceChange(uri));
+        await actions.renameResource(uri, (target) => this._bumpAfterResourceChange(target));
         return;
       case "delete":
-        await actions.deleteResource(uri, () => this._bumpAfterResourceChange(uri));
+        await actions.deleteResource(uri, (deleted) => this._bumpAfterResourceChange(deleted));
         return;
       case "gitStage":
         await actions.gitStage(uri);
