@@ -42,6 +42,7 @@ import {
   displayNameRelativeToFolder,
 } from "./filePaneContentSearch";
 import { gitIncomingToRowPayload, type FileViewRowPayload, type GitFileStatusService } from "./gitFileStatusService";
+import { classifyUrisForTreeBump } from "./treeBumpScope";
 import {
   buildFilePaneWebviewCsp,
   FILE_PANE_VIEW_TYPE,
@@ -82,6 +83,8 @@ import {
 
 /** Coalesce rapid re-list of the same folder (Git + FS watcher + workspace) to avoid webview tbody flicker. */
 const SHOW_FOLDER_DEBOUNCE_MS = 200;
+/** Coalesce rapid saves in the displayed folder (watcher `onDidChange`) before rescanning the listing. */
+const FOLDER_WATCHER_CHANGE_DEBOUNCE_MS = 300;
 /** Cap concurrent `fs.stat` calls when listing rows in Files. */
 const FILE_STAT_CONCURRENCY = 24;
 /** Concurrency for folder size scans (heavy disk work). */
@@ -106,6 +109,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   private _folderWatcher?: vscode.FileSystemWatcher;
   /** Normalized fsPath of the folder currently watched (avoid recreating the same watcher). */
   private _watchedFolderKey: string | undefined;
+  private _folderWatcherChangeTimer: ReturnType<typeof setTimeout> | undefined;
   private _showFolderDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   private _showFolderFlushRunning = false;
   private _showFolderFlushPending = false;
@@ -116,10 +120,10 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   private _lastPostedStateSignature: string | undefined;
 
   /**
-   * `git`: last bump was Git-only — try badge refresh without `readDirectory` / `stat` if listing cache matches.
-   * Reset to `full` after handling or when FS / listing cache is invalidated.
+   * Decoration-only refresh (Git / Problems) without `readDirectory` when row cache still matches the folder listing.
+   * Cleared at the start of {@link _showFolderFlush} or when the listing cache is invalidated.
    */
-  private _refreshMode: "full" | "git" = "full";
+  private _decorationRefreshFlags: { git: boolean; problems: boolean } = { git: false, problems: false };
   /** Matches {@link filesListingCacheKey} after a successful full row build. */
   private _rowCacheListingKey: string | undefined;
   /** Last built rows (for Git-only decoration refresh). */
@@ -161,7 +165,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     this._filesListingCollected = undefined;
     this._rowCacheListingKey = undefined;
     this._rowCachePayloads = undefined;
-    this._refreshMode = "full";
+    this._decorationRefreshFlags = { git: false, problems: false };
   }
 
   /**
@@ -257,57 +261,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     /** After toggling “Select Active File”; extension re-runs Folders ↔ editor sync when applicable. */
     private readonly _onSelectActiveFilePolicyChanged?: () => void
   ) {
-    const bump = (): void => {
-      this._requestRefreshCurrentFolder();
-    };
     this._context.subscriptions.push(
-      vscode.workspace.onDidCreateFiles((e) => {
-        const under = this._pathsUnderDisplayedFolder(e.files);
-        if (under.length > 0) {
-          this._invalidateFolderSizeCacheForFsPaths(under);
-        }
-        if (this._touchesDisplayedFolder(e.files)) {
-          this._invalidateFilesListingCache();
-          bump();
-        } else if (under.length > 0) {
-          bump();
-        }
-      }),
-      vscode.workspace.onDidDeleteFiles((e) => {
-        const under = this._pathsUnderDisplayedFolder(e.files);
-        if (under.length > 0) {
-          this._invalidateFolderSizeCacheForFsPaths(under);
-        }
-        if (this._touchesDisplayedFolder(e.files)) {
-          this._invalidateFilesListingCache();
-          bump();
-        } else if (under.length > 0) {
-          bump();
-        }
-      }),
-      vscode.workspace.onDidRenameFiles((e) => {
-        const folder = this._lastFolderUri;
-        if (!folder) {
-          return;
-        }
-        const underPaths: string[] = [];
-        for (const x of e.files) {
-          underPaths.push(...this._pathsUnderDisplayedFolder([x.oldUri, x.newUri]));
-        }
-        if (underPaths.length > 0) {
-          this._invalidateFolderSizeCacheForFsPaths(underPaths);
-        }
-        for (const x of e.files) {
-          if (this._isDirectFileChild(x.oldUri, folder) || this._isDirectFileChild(x.newUri, folder)) {
-            this._invalidateFilesListingCache();
-            bump();
-            return;
-          }
-        }
-        if (underPaths.length > 0) {
-          bump();
-        }
-      }),
       vscode.window.onDidChangeActiveTextEditor(() => {
         this._postEditorSelectionToWebview();
       }),
@@ -321,6 +275,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
           e.affectsConfiguration("fileViews.files") ||
           e.affectsConfiguration("fileViews.folders")
         ) {
+          this._syncGitIncomingDiffPolicy();
           this._requestRefreshCurrentFolder();
         }
       }),
@@ -332,7 +287,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
         if (folder && !this._gitFileStatus.gitChangesMayAffectFolder(folder)) {
           return;
         }
-        this._refreshMode = "git";
+        this._decorationRefreshFlags.git = true;
         this._requestRefreshCurrentFolder();
       }),
       vscode.languages.onDidChangeDiagnostics(() => {
@@ -348,12 +303,21 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
           if (folder && !diagnosticsMayAffectFolder(folder.fsPath)) {
             return;
           }
+          this._decorationRefreshFlags.problems = true;
           this._requestRefreshCurrentFolder();
         }, DIAGNOSTICS_DEBOUNCE_MS);
       })
     );
 
+    this._syncGitIncomingDiffPolicy();
     this._preloadWebviewShellTemplate();
+  }
+
+  /** Skip upstream `diffBetween` when Git column is off or the Files webview is hidden. */
+  private _syncGitIncomingDiffPolicy(): void {
+    const showGit = getShowGitInFilesFromWorkspaceState(this._context.workspaceState);
+    const visible = this._view?.visible === true;
+    this._gitFileStatus.setIncomingUpstreamDiffPaused(!showGit || !visible);
   }
 
   /** Async pre-load of the webview shell template so `resolveWebviewView` avoids synchronous `readFileSync`. */
@@ -379,6 +343,11 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     void this.showFolder(this._lastFolderUri, forceImmediate);
   }
 
+  /** Avoid unhandled rejections when the webview is disposed mid-refresh (Debug Console noise). */
+  private _safeWebviewPostMessage(wv: vscode.Webview, message: unknown): void {
+    void wv.postMessage(message).then(undefined, () => undefined);
+  }
+
   private _postSelectionPathToWebview(pathValue: string): void {
     const wv = this._view?.webview;
     if (!wv) {
@@ -388,7 +357,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     this._lastPostedSelectionPath = pathValue;
-    void wv.postMessage({ type: "selectPath", path: pathValue });
+    this._safeWebviewPostMessage(wv, { type: "selectPath", path: pathValue });
   }
 
   /** Highlight the row that matches the active editor file (if it is in the current folder list). */
@@ -424,7 +393,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     }
     const on = getHighlightOpenFilesFromWorkspaceState(this._context.workspaceState);
     const paths = on ? collectOpenWorkspaceFilePaths() : [];
-    void wv.postMessage({ type: "openEditors", highlightOpenFiles: on, paths });
+    this._safeWebviewPostMessage(wv, { type: "openEditors", highlightOpenFiles: on, paths });
   }
 
   /** Release the folder watcher; workspace listeners are tied to ExtensionContext. */
@@ -435,6 +404,10 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       this._diagnosticsDebounceTimer = undefined;
     }
     this._disposeFolderWatcher();
+    if (this._folderWatcherChangeTimer !== undefined) {
+      clearTimeout(this._folderWatcherChangeTimer);
+      this._folderWatcherChangeTimer = undefined;
+    }
     void vscode.commands.executeCommand("setContext", "explorer-enhanced.filesPaneEditorKbActive", false);
   }
 
@@ -592,12 +565,31 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     }
     this._lastPostedStateSignature = sig;
     this._setFilesViewHeader(titleCounts);
-    void view.webview.postMessage({ type: "state", ...payload });
+    this._safeWebviewPostMessage(view.webview, { type: "state", ...payload });
     return true;
   }
 
   getLastFolderUri(): vscode.Uri | undefined {
     return this._lastFolderUri;
+  }
+
+  /**
+   * Single entry for workspace FS bumps from {@link extension.ts} (no duplicate `onDidCreateFiles` listeners).
+   * Refreshes Files only when paths touch the displayed folder; subtree-only changes debounce; unrelated paths noop.
+   */
+  refreshAfterWorkspaceFsChange(changedUris: readonly vscode.Uri[]): void {
+    const under = this._pathsUnderDisplayedFolder(changedUris);
+    if (under.length > 0) {
+      this._invalidateFolderSizeCacheForFsPaths(under);
+    }
+    if (this._touchesDisplayedFolder(changedUris)) {
+      this._invalidateFilesListingCache();
+      this._requestRefreshCurrentFolder(true);
+      return;
+    }
+    if (under.length > 0) {
+      this._requestRefreshCurrentFolder(false);
+    }
   }
 
   /**
@@ -661,17 +653,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
 
   private _bumpAfterResourceChange(uri: vscode.Uri): void {
     void (async (): Promise<void> => {
-      let scope: "both" | "filesOnly" = "both";
-      if (!getShowFilesInFolderTreeFromWorkspaceState(this._context.workspaceState)) {
-        try {
-          const st = await vscode.workspace.fs.stat(uri);
-          if (!isFsDirectory(st.type)) {
-            scope = "filesOnly";
-          }
-        } catch {
-          /* keep both */
-        }
-      }
+      const scope = await classifyUrisForTreeBump([uri], this._context.workspaceState);
       this._onFsChange(scope);
     })();
   }
@@ -691,6 +673,10 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
   }
 
   private _disposeFolderWatcher(): void {
+    if (this._folderWatcherChangeTimer !== undefined) {
+      clearTimeout(this._folderWatcherChangeTimer);
+      this._folderWatcherChangeTimer = undefined;
+    }
     this._folderWatcher?.dispose();
     this._folderWatcher = undefined;
     this._watchedFolderKey = undefined;
@@ -709,14 +695,18 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     }
     const pattern = new vscode.RelativePattern(folderUri, "*");
     const w = vscode.workspace.createFileSystemWatcher(pattern);
-    const bump = (uri: vscode.Uri): void => {
+    const bumpOnChange = (uri: vscode.Uri): void => {
       this._invalidateFolderSizeCacheForFsPaths([uri.fsPath]);
-      this._invalidateFilesListingCache();
-      this._requestRefreshCurrentFolder();
+      if (this._folderWatcherChangeTimer !== undefined) {
+        clearTimeout(this._folderWatcherChangeTimer);
+      }
+      this._folderWatcherChangeTimer = setTimeout(() => {
+        this._folderWatcherChangeTimer = undefined;
+        this._invalidateFilesListingCache();
+        this._requestRefreshCurrentFolder(true);
+      }, FOLDER_WATCHER_CHANGE_DEBOUNCE_MS);
     };
-    w.onDidCreate(bump);
-    w.onDidDelete(bump);
-    w.onDidChange(bump);
+    w.onDidChange(bumpOnChange);
     this._folderWatcher = w;
   }
 
@@ -730,6 +720,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
 
     this._context.subscriptions.push(
       webviewView.onDidChangeVisibility(() => {
+        this._syncGitIncomingDiffPolicy();
         if (webviewView.visible) {
           this._cancelShowFolderDebounce();
           this._refreshDirtyWhenHidden = false;
@@ -886,7 +877,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       },
       async (progress, token) => {
         if (view) {
-          void view.webview.postMessage({ type: "contentSearchProgress", running: true });
+          this._safeWebviewPostMessage(view.webview, { type: "contentSearchProgress", running: true });
         }
         try {
           progress.report({ message: "Searching in files…" });
@@ -901,11 +892,30 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
           return rows;
         } finally {
           if (view) {
-            void view.webview.postMessage({ type: "contentSearchProgress", running: false });
+            this._safeWebviewPostMessage(view.webview, {
+              type: "contentSearchProgress",
+              running: false,
+            });
           }
         }
       }
     );
+  }
+
+  /** Refresh Problems counts from cached rows only (no `readDirectory` / `stat`). */
+  private _rowWithFreshProblems(row: FileViewRowPayload): FileViewRowPayload {
+    if (row.kind === "folder") {
+      const base: FileViewRowPayload = { ...row };
+      delete base.problems;
+      return base;
+    }
+    const base: FileViewRowPayload = { ...row };
+    delete base.problems;
+    const pc = buildProblemsCountForFilePaths([row.path]).get(normalizeProblemsPath(row.path));
+    if (pc && (pc.errors > 0 || pc.warnings > 0 || pc.infos > 0)) {
+      return { ...base, problems: { errors: pc.errors, warnings: pc.warnings, infos: pc.infos } };
+    }
+    return base;
   }
 
   /** Refresh Git decorations from cached rows only (no `stat` / `readDirectory`). */
@@ -928,7 +938,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     rows: FileViewRowPayload[],
     showFolderSize: boolean
   ): void {
-    if (!showFolderSize) {
+    if (!showFolderSize || !this._view?.visible) {
       return;
     }
     const pendingUris = rows
@@ -1171,7 +1181,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       this._lastPostedStateSignature = undefined;
       const wv = this._view?.webview;
       if (wv) {
-        void wv.postMessage({ type: "syncDetailColWidthsPx", detailColWidthsPx: n });
+        this._safeWebviewPostMessage(wv, { type: "syncDetailColWidthsPx", detailColWidthsPx: n });
       }
     });
     return true;
@@ -1400,8 +1410,8 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const incomingRefreshMode = this._refreshMode;
-    this._refreshMode = "full";
+    const decorationFlags = { ...this._decorationRefreshFlags };
+    this._decorationRefreshFlags = { git: false, problems: false };
 
     const settingsConfigs = resolveEnhanceExplorerSettingsConfigs();
     const settings = getFilesSettingsSnapshot(this._context.workspaceState, settingsConfigs);
@@ -1441,17 +1451,28 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     const contentListingKey = `content\t${listingKey}\t${qTrim}`;
     const contentCacheActive = this._rowCacheListingKey?.startsWith("content\t") === true;
 
-    const gitOnlyEligible =
-      incomingRefreshMode === "git" &&
-      showGitStatus &&
+    const listingCacheMatches =
       this._rowCachePayloads !== undefined &&
       ((contentCacheActive && this._rowCacheListingKey === contentListingKey) ||
         (!contentCacheActive &&
           this._rowCacheListingKey === listingKey &&
           this._filesListingCacheKey === listingKey));
 
-    if (gitOnlyEligible) {
-      const newRows = this._rowCachePayloads!.map((r) => this._rowWithFreshGit(r));
+    const decorationOnlyEligible =
+      listingCacheMatches &&
+      ((decorationFlags.git && showGitStatus) || (decorationFlags.problems && showProblemsInFiles));
+
+    if (decorationOnlyEligible) {
+      const newRows = this._rowCachePayloads!.map((r) => {
+        let row = r;
+        if (decorationFlags.git && showGitStatus) {
+          row = this._rowWithFreshGit(row);
+        }
+        if (decorationFlags.problems && showProblemsInFiles) {
+          row = this._rowWithFreshProblems(row);
+        }
+        return row;
+      });
       this._rowCachePayloads = newRows;
       const filledPayload = this._buildStatePayload(
         folderUri.fsPath,
@@ -1596,6 +1617,7 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
     }
     if (msg?.type === "setShowGitStatus" && typeof msg.value === "boolean") {
       void setShowGitInFiles(this._context.workspaceState, msg.value).then(() => {
+        this._syncGitIncomingDiffPolicy();
         this._requestRefreshCurrentFolder();
       });
       return;
@@ -1670,7 +1692,11 @@ export class FilePaneViewProvider implements vscode.WebviewViewProvider {
       const crumbs = buildFolderBreadcrumbSegments(target);
       this._filesPaneKbFolderRowFsPath = target;
       this.syncFilesPaneKeyboardContextKeys();
-      void wv.postMessage({ type: "folderRowSelect", path: target, folderBreadcrumb: crumbs });
+      this._safeWebviewPostMessage(wv, {
+        type: "folderRowSelect",
+        path: target,
+        folderBreadcrumb: crumbs,
+      });
       return;
     }
     if (msg?.type === "openFolder" && msg.path) {

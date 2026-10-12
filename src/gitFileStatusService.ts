@@ -367,9 +367,27 @@ export class GitFileStatusService implements vscode.Disposable {
   private _api: GitAPI | undefined;
   private _wiredApi = false;
   private _bumpTimer: ReturnType<typeof setTimeout> | undefined;
+  /** When true, skip `diffBetween` / incoming map refresh (Files hidden or Git column off). */
+  private _incomingUpstreamDiffPaused = false;
   /** Single-flight init from {@link ensureInitialized}; not started at construction (faster extension activation). */
   private _initPromise: Promise<void> | undefined;
   private _alive = true;
+
+  /**
+   * Pause expensive upstream incoming diffs when the Files pane cannot show them.
+   * Resuming schedules a refresh for open repositories.
+   */
+  setIncomingUpstreamDiffPaused(paused: boolean): void {
+    if (this._incomingUpstreamDiffPaused === paused) {
+      return;
+    }
+    this._incomingUpstreamDiffPaused = paused;
+    if (!paused && this._api && this._api.state === "initialized") {
+      for (const r of this._api.repositories) {
+        this._scheduleIncomingPathsRefresh(r);
+      }
+    }
+  }
 
   constructor() {
     /* Git wiring deferred until {@link ensureInitialized} — avoids activating `vscode.git` on startup when Files Git column is off. */
@@ -534,6 +552,9 @@ export class GitFileStatusService implements vscode.Disposable {
   }
 
   private _scheduleIncomingPathsRefresh(repo: GitRepository): void {
+    if (this._incomingUpstreamDiffPaused) {
+      return;
+    }
     const prev = this._incomingTimersByRepo.get(repo);
     if (prev !== undefined) {
       clearTimeout(prev);

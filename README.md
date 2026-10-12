@@ -121,7 +121,7 @@ npm install
 npm run compile
 ```
 
-Press **F5** in VS Code to launch the **Extension Development Host** (see `launch.json` / `tasks.json`).
+Press **F5** in VS Code to launch the **Extension Development Host** (see `launch.json` / `tasks.json`). Use **Run Extension (disable other extensions)** only when you need an isolated console.
 
 ```bash
 npm run lint

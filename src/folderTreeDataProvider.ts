@@ -1,11 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { mapPool } from "./asyncPool";
 import { isFsDirectory, isFsFile } from "./fileTypeUtils";
 import { getShowFilesInFolderTreeFromWorkspaceState } from "./filePaneSettings";
-
-/** Max parallel directory reads (avoids FS / AV thrashing on huge folders). */
-const LIST_DIR_CONCURRENCY = 32;
 
 const MEMENTO_KEY = "explorer-enhanced.folderTree.snapshot.v1";
 const PERSIST_DEBOUNCE_MS = 800;
@@ -326,18 +322,6 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
     }
   }
 
-  /** Subfolders, or files when {@link explorer-enhanced.folders.showFilesInTree} is on — drives chevrons and expansion. */
-  private async directoryHasVisibleChildren(
-    uri: vscode.Uri,
-    showFilesInFolderTree = this._showFilesInFolderTree()
-  ): Promise<boolean> {
-    const entries = await this.listDirectory(uri);
-    if (entries.some(([, t]) => isFsDirectory(t))) {
-      return true;
-    }
-    return showFilesInFolderTree && entries.some(([, t]) => isFsFile(t));
-  }
-
   private _rootHasVisibleChildren(
     entries: [string, vscode.FileType][],
     showFilesInFolderTree = this._showFilesInFolderTree()
@@ -354,10 +338,10 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
     const entries = await this.listDirectory(parentUri);
     const showFiles = this._showFilesInFolderTree();
     const dirEntries = entries.filter(([, t]) => isFsDirectory(t));
-    const dirs = await mapPool(dirEntries, LIST_DIR_CONCURRENCY, async ([name]) => {
+    /** One `readDirectory` per parent; chevrons are optimistic (expand loads real children). */
+    const dirs = dirEntries.map(([name]) => {
       const childUri = vscode.Uri.joinPath(parentUri, name);
-      const hasKids = await this.directoryHasVisibleChildren(childUri, showFiles);
-      return new FolderTreeItem(childUri, name, collapsibleIfExpandable(hasKids), false);
+      return new FolderTreeItem(childUri, name, vscode.TreeItemCollapsibleState.Collapsed, false);
     });
     dirs.sort((a, b) =>
       String(a.label ?? a.uri.fsPath).localeCompare(String(b.label ?? b.uri.fsPath), undefined, {
@@ -416,7 +400,7 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
    * Build a tree item for a workspace folder path (same labels as {@link getChildren}).
    * Used with {@link vscode.TreeView.reveal} when syncing selection from the active editor.
    */
-  async getTreeItemForFolderUri(folderUri: vscode.Uri): Promise<FolderTreeItem | undefined> {
+  getTreeItemForFolderUri(folderUri: vscode.Uri): FolderTreeItem | undefined {
     const wf = vscode.workspace.getWorkspaceFolder(folderUri);
     if (!wf) {
       return undefined;
@@ -427,12 +411,20 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
     if (rel.startsWith("..") || path.isAbsolute(rel)) {
       return undefined;
     }
-    const hasKids = await this.directoryHasVisibleChildren(folderUri);
-    const state = collapsibleIfExpandable(hasKids);
     if (targetNorm === rootNorm) {
-      return new FolderTreeItem(wf.uri, wf.name, state, false, true);
+      return new FolderTreeItem(
+        wf.uri,
+        wf.name,
+        vscode.TreeItemCollapsibleState.Collapsed,
+        false,
+        true
+      );
     }
-    return new FolderTreeItem(vscode.Uri.file(targetNorm), path.basename(targetNorm), state);
+    return new FolderTreeItem(
+      vscode.Uri.file(targetNorm),
+      path.basename(targetNorm),
+      vscode.TreeItemCollapsibleState.Collapsed
+    );
   }
 
   /**
@@ -549,7 +541,7 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
     return items;
   }
 
-  async getParent(element: FolderTreeItem): Promise<FolderTreeItem | undefined> {
+  getParent(element: FolderTreeItem): FolderTreeItem | undefined {
     const wf = vscode.workspace.getWorkspaceFolder(element.uri);
     if (!wf) {
       return undefined;
@@ -562,9 +554,15 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
     const name = atWorkspaceRoot
       ? wf.name
       : parentUri.fsPath.split(/[/\\]/).filter(Boolean).pop() ?? parentUri.fsPath;
-    const hasKids = await this.directoryHasVisibleChildren(parentUri);
     const isWorkspaceRootRow =
       path.normalize(parentUri.fsPath) === path.normalize(wf.uri.fsPath);
-    return new FolderTreeItem(parentUri, name, collapsibleIfExpandable(hasKids), false, isWorkspaceRootRow);
+    /* The parent of `element` always contains at least `element` → always expandable (no `readDirectory`). */
+    return new FolderTreeItem(
+      parentUri,
+      name,
+      vscode.TreeItemCollapsibleState.Collapsed,
+      false,
+      isWorkspaceRootRow
+    );
   }
 }

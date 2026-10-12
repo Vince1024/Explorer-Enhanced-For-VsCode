@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 > [!NOTE]
 > Release entries are **newest first** (recommended by Keep a Changelog). Older bullets may reference git tags `v0.0.1`–`v0.0.8` (commit SHAs in parentheses); **`v1.0.1`** is the first stable major line; **patch** releases (ex. `v1.0.2`) are bumped by CI on publish.
 
+## [1.0.9] - 2026-10-12
+
+### Changed
+
+- **Performance (P0):** drop recursive workspace `**/*` file watchers; rely on `onDidCreateFiles` / `onDidDeleteFiles` / `onDidRenameFiles` plus the Files pane watcher on the displayed folder (`extension.ts`).
+- **Performance (P0):** one workspace FS pipeline — removed duplicate `onDidCreateFiles` / delete / rename listeners in `filePaneViewProvider`; extension calls `refreshAfterWorkspaceFsChange` (immediate refresh only when the displayed folder listing changes; no-op otherwise). Folder watcher keeps debounced `onDidChange` only (create/delete via extension).
+- **Performance (P1):** defer Folders tree refresh while the Folders view is hidden (dirty refresh when Explorer Enhanced is shown again); classify file deletes for tree bump (`filesOnly` when dirs-only tree); debounce Files rescans on watcher `onDidChange` (saves) by 300 ms (`extension.ts`, `filePaneViewProvider.ts`).
+
+- **Performance (P2):** Folders tree — one `readDirectory` per expand (optimistic chevrons, no N× child probes, also in `getParent` / `getTreeItemForFolderUri`). Files — Problems column refreshes badges from row cache like Git; upstream incoming `diffBetween` paused when Git is off or Files webview is hidden; folder-size scans skip while Files is hidden (`folderTreeDataProvider.ts`, `filePaneViewProvider.ts`, `gitFileStatusService.ts`).
+- **Refactor:** shared `treeBumpScope.ts` (`classifyUrisForTreeBump` + `deletedPathLooksLikeDirectory`) replaces three near-identical create/delete/rename classifiers in `extension.ts` and the duplicated resource-scope logic in `filePaneViewProvider.ts`; removed unused `directoryHasVisibleChildren` (`extension.ts`, `filePaneViewProvider.ts`, `folderTreeDataProvider.ts`, `treeBumpScope.ts`).
+
+### Fixed
+
+- **Development:** webview `postMessage` rejections when the view is disposed are swallowed; optional **Run Extension (disable other extensions)** in `launch.json` for an isolated Debug Console.
+
 ## [1.0.8] - 2026-08-26
 
 ### Added

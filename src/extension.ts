@@ -19,6 +19,7 @@ import {
 import { registerFoldersTreeExpandModeSync } from "./folderTreeExpandMode";
 import { FolderTreeDataProvider, FolderTreeItem } from "./folderTreeDataProvider";
 import { GitFileStatusService } from "./gitFileStatusService";
+import { classifyUrisForTreeBump, deletedPathLooksLikeDirectory } from "./treeBumpScope";
 
 function uriInWorkspace(uri: vscode.Uri): boolean {
   return uri.scheme === "file" && vscode.workspace.getWorkspaceFolder(uri) !== undefined;
@@ -27,82 +28,54 @@ function uriInWorkspace(uri: vscode.Uri): boolean {
 /** One coalesced FS signal for debounced bump (Folders tree vs Files pane). */
 type FsBumpOp =
   | { kind: "create"; uri: vscode.Uri }
-  | { kind: "delete" }
-  | { kind: "rename"; newUri: vscode.Uri };
+  | { kind: "delete"; uri: vscode.Uri }
+  | { kind: "rename"; oldUri: vscode.Uri; newUri: vscode.Uri };
 
-async function classifyCreateUrisForTreeBump(
-  uris: readonly vscode.Uri[],
-  workspaceState: vscode.Memento
-): Promise<"both" | "filesOnly"> {
-  if (uris.length === 0) {
-    return "both";
-  }
-  if (getShowFilesInFolderTreeFromWorkspaceState(workspaceState)) {
-    return "both";
-  }
-  for (const u of uris) {
-    try {
-      const st = await vscode.workspace.fs.stat(u);
-      if (isFsDirectory(st.type)) {
-        return "both";
-      }
-    } catch {
-      return "both";
+function collectWorkspaceFsUris(ops: readonly FsBumpOp[]): vscode.Uri[] {
+  const out: vscode.Uri[] = [];
+  for (const o of ops) {
+    if (o.kind === "create" || o.kind === "delete") {
+      out.push(o.uri);
+    } else {
+      out.push(o.oldUri, o.newUri);
     }
   }
-  return "filesOnly";
-}
-
-async function classifyRenameNewUrisForTreeBump(
-  newUris: readonly vscode.Uri[],
-  workspaceState: vscode.Memento
-): Promise<"both" | "filesOnly"> {
-  if (newUris.length === 0) {
-    return "both";
-  }
-  if (getShowFilesInFolderTreeFromWorkspaceState(workspaceState)) {
-    return "both";
-  }
-  for (const u of newUris) {
-    try {
-      const st = await vscode.workspace.fs.stat(u);
-      if (isFsDirectory(st.type)) {
-        return "both";
-      }
-    } catch {
-      return "both";
-    }
-  }
-  return "filesOnly";
+  return out;
 }
 
 async function flushFsBumpQueue(
   ops: FsBumpOp[],
   workspaceState: vscode.Memento,
-  bumpAfterFsChange: (scope: "both" | "filesOnly") => void
+  bumpAfterFsChange: (scope: "both" | "filesOnly", relatedUris: readonly vscode.Uri[]) => void
 ): Promise<void> {
   if (ops.length === 0) {
     return;
   }
-  if (ops.some((o) => o.kind === "delete")) {
-    bumpAfterFsChange("both");
-    return;
-  }
+  const relatedUris = collectWorkspaceFsUris(ops);
+  const deletes = ops.filter((o): o is { kind: "delete"; uri: vscode.Uri } => o.kind === "delete");
   const creates = ops.filter((o): o is { kind: "create"; uri: vscode.Uri } => o.kind === "create");
-  const renames = ops.filter((o): o is { kind: "rename"; newUri: vscode.Uri } => o.kind === "rename");
-  if (creates.length > 0 && renames.length > 0) {
-    bumpAfterFsChange("both");
-    return;
+  const renames = ops.filter(
+    (o): o is { kind: "rename"; oldUri: vscode.Uri; newUri: vscode.Uri } => o.kind === "rename"
+  );
+  let scope: "both" | "filesOnly" = "both";
+  if (deletes.length > 0) {
+    if (creates.length > 0 || renames.length > 0) {
+      scope = "both";
+    } else {
+      scope = await classifyUrisForTreeBump(
+        deletes.map((d) => d.uri),
+        workspaceState,
+        deletedPathLooksLikeDirectory
+      );
+    }
+  } else if (creates.length > 0 && renames.length > 0) {
+    scope = "both";
+  } else if (renames.length > 0) {
+    scope = await classifyUrisForTreeBump(renames.map((r) => r.newUri), workspaceState);
+  } else if (creates.length > 0) {
+    scope = await classifyUrisForTreeBump(creates.map((c) => c.uri), workspaceState);
   }
-  if (renames.length > 0) {
-    bumpAfterFsChange(await classifyRenameNewUrisForTreeBump(renames.map((r) => r.newUri), workspaceState));
-    return;
-  }
-  if (creates.length > 0) {
-    bumpAfterFsChange(await classifyCreateUrisForTreeBump(creates.map((c) => c.uri), workspaceState));
-    return;
-  }
-  bumpAfterFsChange("both");
+  bumpAfterFsChange(scope, relatedUris);
 }
 
 /**
@@ -132,33 +105,12 @@ export function activate(context: vscode.ExtensionContext): void {
   let notifySelectActiveFilePolicyChanged: () => void = () => {};
 
   const filePaneHost: { current?: FilePaneViewProvider } = {};
-  const bumpAfterFsChange = (scope: "both" | "filesOnly" = "both"): void => {
-    if (scope === "both") {
-      folderData.scheduleRefresh();
-    }
-    const p = filePaneHost.current;
-    if (p) {
-      void p.showFolder(p.getLastFolderUri());
-    }
-  };
-
-  const scopeForResourceTreeBump = async (uri: vscode.Uri): Promise<"both" | "filesOnly"> => {
-    if (getShowFilesInFolderTreeFromWorkspaceState(context.workspaceState)) {
-      return "both";
-    }
-    try {
-      const st = await vscode.workspace.fs.stat(uri);
-      if (isFsDirectory(st.type)) {
-        return "both";
-      }
-    } catch {
-      return "both";
-    }
-    return "filesOnly";
-  };
+  let folderTreeRefreshDirty = false;
 
   const bumpAfterResourceChange = (uri: vscode.Uri): void => {
-    void scopeForResourceTreeBump(uri).then((scope) => bumpAfterFsChange(scope));
+    void classifyUrisForTreeBump([uri], context.workspaceState).then((scope) =>
+      bumpAfterFsChange(scope, [uri])
+    );
   };
 
   const treeView = vscode.window.createTreeView("explorer-enhanced.folderTree", {
@@ -166,6 +118,32 @@ export function activate(context: vscode.ExtensionContext): void {
     showCollapseAll: true,
     dragAndDropController: createFolderTreeDragAndDropController(),
   });
+
+  const scheduleFolderTreeRefresh = (): void => {
+    if (treeView.visible) {
+      folderData.scheduleRefresh();
+    } else {
+      folderTreeRefreshDirty = true;
+    }
+  };
+
+  const bumpAfterFsChange = (
+    scope: "both" | "filesOnly" = "both",
+    relatedUris?: readonly vscode.Uri[]
+  ): void => {
+    if (scope === "both") {
+      scheduleFolderTreeRefresh();
+    }
+    const p = filePaneHost.current;
+    if (!p) {
+      return;
+    }
+    if (relatedUris && relatedUris.length > 0) {
+      p.refreshAfterWorkspaceFsChange(relatedUris);
+    } else {
+      void p.showFolder(p.getLastFolderUri());
+    }
+  };
 
   const syncExplorerEnhancedFolderContexts = (): void => {
     const n = vscode.workspace.workspaceFolders?.length ?? 0;
@@ -180,7 +158,7 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     await folderData.whenRefreshSettled();
-    const item = await folderData.getTreeItemForFolderUri(folderUri);
+    const item = folderData.getTreeItemForFolderUri(folderUri);
     if (item) {
       try {
         await treeView.reveal(item, { select: true, focus: false, expand: true });
@@ -225,7 +203,7 @@ export function activate(context: vscode.ExtensionContext): void {
         startupCoalesceTimer = setTimeout(() => {
           startupCoalesceTimer = undefined;
           const batch = fsBumpPendingOps.splice(0, fsBumpPendingOps.length);
-          void flushFsBumpQueue(batch, context.workspaceState, bumpAfterFsChange);
+          void flushFsBumpQueue(batch, context.workspaceState, bumpAfterFsChange).catch(() => undefined);
         }, delay);
       }
       return;
@@ -236,37 +214,14 @@ export function activate(context: vscode.ExtensionContext): void {
     fsBumpDebounceTimer = setTimeout(() => {
       fsBumpDebounceTimer = undefined;
       const batch = fsBumpPendingOps.splice(0, fsBumpPendingOps.length);
-      void flushFsBumpQueue(batch, context.workspaceState, bumpAfterFsChange);
+      void flushFsBumpQueue(batch, context.workspaceState, bumpAfterFsChange).catch(() => undefined);
     }, FS_BUMP_DEBOUNCE_MS);
   };
 
-  const rootRecursiveWatchers: vscode.FileSystemWatcher[] = [];
-  const setupRootRecursiveWatchers = (): void => {
-    for (const w of rootRecursiveWatchers) {
-      w.dispose();
-    }
-    rootRecursiveWatchers.length = 0;
-    for (const wf of vscode.workspace.workspaceFolders ?? []) {
-      const pattern = new vscode.RelativePattern(wf, "**/*");
-      const w = vscode.workspace.createFileSystemWatcher(pattern, false, true, false);
-      w.onDidCreate((uri) => {
-        if (uriInWorkspace(uri)) {
-          scheduleBumpAfterFsChange({ kind: "create", uri });
-        }
-      });
-      w.onDidDelete((uri) => {
-        if (uriInWorkspace(uri)) {
-          scheduleBumpAfterFsChange({ kind: "delete" });
-        }
-      });
-      rootRecursiveWatchers.push(w);
-    }
-  };
-
   /**
-   * First macrotask after `activate` returns: install recursive FS watchers + initial Folders/Files sync.
-   * Watchers are deferred so `activate` is lighter; `onDidCreateFiles` / `onDidDeleteFiles` / `onDidRenameFiles`
-   * still cover editor-driven changes during the gap. Cleared on dispose if the window shuts down immediately.
+   * First macrotask after `activate`: initial Folders/Files sync.
+   * FS changes use workspace `onDidCreateFiles` / `onDidDeleteFiles` / `onDidRenameFiles` only (recursive
+   * glob watchers were removed — they duplicated those events and amplified refresh load on large workspaces).
    */
   let startupKickoffTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -298,10 +253,6 @@ export function activate(context: vscode.ExtensionContext): void {
         clearTimeout(startupKickoffTimer);
         startupKickoffTimer = undefined;
       }
-      for (const w of rootRecursiveWatchers) {
-        w.dispose();
-      }
-      rootRecursiveWatchers.length = 0;
     }),
     new vscode.Disposable(() => filePane.dispose()),
     treeView,
@@ -323,14 +274,16 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.workspace.onDidDeleteFiles((e) => {
-      if (e.files.some(uriInWorkspace)) {
-        scheduleBumpAfterFsChange({ kind: "delete" });
+      for (const uri of e.files) {
+        if (uriInWorkspace(uri)) {
+          scheduleBumpAfterFsChange({ kind: "delete", uri });
+        }
       }
     }),
     vscode.workspace.onDidRenameFiles((e) => {
       for (const x of e.files) {
         if (uriInWorkspace(x.oldUri) || uriInWorkspace(x.newUri)) {
-          scheduleBumpAfterFsChange({ kind: "rename", newUri: x.newUri });
+          scheduleBumpAfterFsChange({ kind: "rename", oldUri: x.oldUri, newUri: x.newUri });
         }
       }
     }),
@@ -338,7 +291,6 @@ export function activate(context: vscode.ExtensionContext): void {
       syncExplorerEnhancedFolderContexts();
       folderData.refresh();
       updateFolderTreeChrome();
-      setupRootRecursiveWatchers();
       if ((vscode.workspace.workspaceFolders?.length ?? 0) === 0) {
         void filePane.showFolder(undefined);
       }
@@ -529,7 +481,7 @@ export function activate(context: vscode.ExtensionContext): void {
       folderFs = path.normalize(docUri.fsPath);
     }
     const folderUri = vscode.Uri.file(folderFs);
-    const item = await folderData.getTreeItemForFolderUri(folderUri);
+    const item = folderData.getTreeItemForFolderUri(folderUri);
     if (!item) {
       return;
     }
@@ -575,6 +527,10 @@ export function activate(context: vscode.ExtensionContext): void {
     treeView.onDidChangeSelection(() => syncFilesToFolderSelection()),
     treeView.onDidChangeVisibility((e) => {
       if (e.visible) {
+        if (folderTreeRefreshDirty) {
+          folderTreeRefreshDirty = false;
+          folderData.scheduleRefresh();
+        }
         if (syncFolderTreeDebounceTimer !== undefined) {
           clearTimeout(syncFolderTreeDebounceTimer);
           syncFolderTreeDebounceTimer = undefined;
@@ -591,10 +547,9 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
-  /** One macrotask after `activate`: recursive watchers, then Folders/Files sync (see `startupKickoffTimer` dispose). */
+  /** One macrotask after `activate`: Folders/Files sync (see `startupKickoffTimer` dispose). */
   startupKickoffTimer = setTimeout(() => {
     startupKickoffTimer = undefined;
-    setupRootRecursiveWatchers();
     if (treeView.selection.length > 0) {
       syncFilesToFolderSelection();
     }
