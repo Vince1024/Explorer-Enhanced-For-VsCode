@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 > [!NOTE]
 > Release entries are **newest first** (recommended by Keep a Changelog). Older bullets may reference git tags `v0.0.1`–`v0.0.8` (commit SHAs in parentheses); **`v1.0.1`** is the first stable major line; **patch** releases (ex. `v1.0.2`) are bumped by CI on publish.
 
+## [1.0.11] - 2026-10-13
+
+### Changed
+
+- **Performance:** align the Folders tree on the native Explorer's refresh model to remove occasional full-tree "big jobs" on create/delete. Incremental, targeted refresh (`folderData.applyFsChanges`) fires only the affected parent node(s) by object reference — matching VS Code's `_nodes` identity map — instead of clearing the whole directory cache and rebuilding; changes in collapsed/unresolved branches are ignored and re-read lazily on expand (`folderTreeDataProvider.ts`, `extension.ts`).
+- **Performance:** the recursive workspace `**/*` watcher now drops paths under `files.watcherExclude` (defaults: `**/node_modules`, `**/.git/objects`, `**/bower_components`, build output…), like the native Explorer's background watcher, so dependency/VCS/build churn no longer schedules a refresh or `stat` storm (`fsWatchExclude.ts`, `extension.ts`).
+
+### Fixed
+
+- **Folders tree chevrons:** empty folders no longer keep a dangling chevron. Chevrons still render optimistically (no blocking IO on expand), then a debounced, pooled background probe proves each child empty/non-empty and flips `Collapsed` → `None`. Applies to both the live (`readDirectory`) and persisted-snapshot render paths — the snapshot is verified (it could be stale: pre-1.0.11 persisted every folder as expandable) and healed so corrected chevrons survive reloads; results are cached, invalidated on delete, and kept correct on create/delete via a parent re-render (`folderTreeDataProvider.ts`).
+
 ## [1.0.10] - 2026-10-12
 
 ### Fixed

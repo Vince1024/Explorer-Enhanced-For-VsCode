@@ -20,6 +20,7 @@ import { registerFoldersTreeExpandModeSync } from "./folderTreeExpandMode";
 import { FolderTreeDataProvider, FolderTreeItem } from "./folderTreeDataProvider";
 import { GitFileStatusService } from "./gitFileStatusService";
 import { classifyUrisForTreeBump, deletedPathLooksLikeDirectory } from "./treeBumpScope";
+import { createFsWatchExcludeFilter } from "./fsWatchExclude";
 
 function uriInWorkspace(uri: vscode.Uri): boolean {
   return uri.scheme === "file" && vscode.workspace.getWorkspaceFolder(uri) !== undefined;
@@ -95,7 +96,12 @@ export function activate(context: vscode.ExtensionContext): void {
   const startupPhaseEndsAt = Date.now() + STARTUP_FS_COALESCE_MS;
   const folderData = new FolderTreeDataProvider(context.workspaceState);
   const gitFileStatus = new GitFileStatusService();
-  context.subscriptions.push(gitFileStatus, new vscode.Disposable(() => folderData.dispose()));
+  const fsWatchExclude = createFsWatchExcludeFilter();
+  context.subscriptions.push(
+    gitFileStatus,
+    new vscode.Disposable(() => folderData.dispose()),
+    new vscode.Disposable(() => fsWatchExclude.dispose())
+  );
 
   registerFoldersTreeExpandModeSync(context);
 
@@ -135,7 +141,15 @@ export function activate(context: vscode.ExtensionContext): void {
     relatedUris?: readonly vscode.Uri[]
   ): void => {
     if (scope === "both") {
-      scheduleFolderTreeRefresh();
+      /**
+       * Native-style targeted refresh only when the Folders tree is actually visible (VS Code keeps its
+       * node references then); otherwise fall back to the deferred/full refresh so nothing is missed.
+       */
+      if (treeView.visible && relatedUris && relatedUris.length > 0) {
+        void folderData.applyFsChanges(relatedUris).catch(() => undefined);
+      } else {
+        scheduleFolderTreeRefresh();
+      }
     }
     const p = filePaneHost.current;
     if (!p) {
@@ -233,6 +247,8 @@ export function activate(context: vscode.ExtensionContext): void {
   /**
    * Create/delete under each workspace root (ignore file content changes). Catches external tooling when
    * `onDidCreateFiles` / `onDidDeleteFiles` are missing or delayed; coalesced with workspace events.
+   * Paths under `files.watcherExclude` (node_modules, .git/objects, build output…) are dropped like the
+   * native Explorer's background watcher, so dependency/VCS churn never schedules an Explorer refresh.
    */
   const rootRecursiveWatchers: vscode.FileSystemWatcher[] = [];
   const setupRootRecursiveWatchers = (): void => {
@@ -244,12 +260,12 @@ export function activate(context: vscode.ExtensionContext): void {
       const pattern = new vscode.RelativePattern(wf, "**/*");
       const w = vscode.workspace.createFileSystemWatcher(pattern, false, true, false);
       w.onDidCreate((uri) => {
-        if (uriInWorkspace(uri)) {
+        if (uriInWorkspace(uri) && !fsWatchExclude.isExcluded(uri)) {
           scheduleBumpAfterFsChange({ kind: "create", uri });
         }
       });
       w.onDidDelete((uri) => {
-        if (uriInWorkspace(uri)) {
+        if (uriInWorkspace(uri) && !fsWatchExclude.isExcluded(uri)) {
           scheduleBumpAfterFsChange({ kind: "delete", uri });
         }
       });

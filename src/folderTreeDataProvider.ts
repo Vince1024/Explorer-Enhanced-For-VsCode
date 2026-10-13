@@ -9,11 +9,31 @@ const PERSIST_DEBOUNCE_MS = 800;
 export const FOLDER_TREE_REFRESH_DEBOUNCE_MS = 80;
 /** Quiet period after {@link refresh} before `treeView.reveal` (avoids duplicate tree node ids). */
 const FOLDER_TREE_REFRESH_SETTLE_MS = 50;
+/** Parallelism for the background chevron probe that corrects optimistic chevrons after first paint. */
+const CHEVRON_PROBE_CONCURRENCY = 8;
+/** Coalesce chevron probes across sibling expands before firing targeted corrections. */
+const CHEVRON_PROBE_DEBOUNCE_MS = 120;
 
 function collapsibleIfExpandable(hasExpandableChildren: boolean): vscode.TreeItemCollapsibleState {
   return hasExpandableChildren
     ? vscode.TreeItemCollapsibleState.Collapsed
     : vscode.TreeItemCollapsibleState.None;
+}
+
+/** Run `fn` over `items` with bounded concurrency (background chevron probing). */
+async function mapPool<T>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>
+): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (next < items.length) {
+      const idx = next++;
+      await fn(items[idx]);
+    }
+  });
+  await Promise.all(workers);
 }
 
 function cacheKey(uri: vscode.Uri): string {
@@ -128,6 +148,24 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
   private readonly _dirListCache = new Map<string, [string, vscode.FileType][]>();
 
   /**
+   * Live folder-item references handed to VS Code by {@link getChildren}, keyed by normalized fsPath.
+   * VS Code's tree model is keyed by object reference (`_nodes: Map<T, TreeNode>`), so a targeted
+   * `onDidChangeTreeData.fire(element)` only works with the exact reference it still holds. Kept current
+   * on every {@link getChildren} and used by {@link applyFsChanges} for native-style incremental refresh.
+   */
+  private readonly _itemsByKey = new Map<string, FolderTreeItem>();
+
+  /**
+   * Known "has visible children" per directory (dirs-only, or any entry when files are shown in the tree).
+   * Fills lazily via a background probe so chevrons start optimistic (no blocking IO) then self-correct:
+   * a directory proven empty flips `Collapsed` → `None`. Cleared on {@link refresh}, pruned on delete.
+   */
+  private readonly _hasChildrenCache = new Map<string, boolean>();
+  /** Parent key → child directory URIs awaiting a background chevron probe. */
+  private readonly _chevronProbePending = new Map<string, vscode.Uri[]>();
+  private _chevronProbeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /**
    * When `true`, a persisted folder-only snapshot may hydrate the first paint after reload (dirs-only tree).
    * Set to `false` by {@link refresh} or when disk listing diverges from the snapshot; goes back to `true` only in a new window (new host).
    */
@@ -171,6 +209,10 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
       clearTimeout(this._refreshDebounceTimer);
       this._refreshDebounceTimer = undefined;
     }
+    if (this._chevronProbeTimer !== undefined) {
+      clearTimeout(this._chevronProbeTimer);
+      this._chevronProbeTimer = undefined;
+    }
     if (this._pendingNodeUpdates.size > 0) {
       this._runPersist();
     }
@@ -195,6 +237,13 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
 
   refresh(): void {
     this._dirListCache.clear();
+    this._itemsByKey.clear();
+    this._hasChildrenCache.clear();
+    this._chevronProbePending.clear();
+    if (this._chevronProbeTimer !== undefined) {
+      clearTimeout(this._chevronProbeTimer);
+      this._chevronProbeTimer = undefined;
+    }
     this._trustMemento = false;
     this._pendingNodeUpdates.clear();
     if (this._persistTimer !== undefined) {
@@ -338,11 +387,17 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
     const entries = await this.listDirectory(parentUri);
     const showFiles = this._showFilesInFolderTree();
     const dirEntries = entries.filter(([, t]) => isFsDirectory(t));
-    /** One `readDirectory` per parent; chevrons are optimistic (expand loads real children). */
-    const dirs = dirEntries.map(([name]) => {
-      const childUri = vscode.Uri.joinPath(parentUri, name);
-      return new FolderTreeItem(childUri, name, vscode.TreeItemCollapsibleState.Collapsed, false);
+    /**
+     * One `readDirectory` per parent. Chevrons start optimistic (`Collapsed`) to avoid an IO probe per
+     * child, then a debounced background probe ({@link _scheduleChevronProbe}) flips proven-empty dirs to
+     * `None` — accurate chevrons without blocking first paint. Known-empty dirs render correctly at once.
+     */
+    const childDirUris = dirEntries.map(([name]) => vscode.Uri.joinPath(parentUri, name));
+    const dirs = dirEntries.map(([name], i) => {
+      const childUri = childDirUris[i];
+      return new FolderTreeItem(childUri, name, this._collapsibleForDir(childUri), false);
     });
+    this._scheduleChevronProbe(parentUri, childDirUris);
     dirs.sort((a, b) =>
       String(a.label ?? a.uri.fsPath).localeCompare(String(b.label ?? b.uri.fsPath), undefined, {
         sensitivity: "base",
@@ -380,14 +435,24 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
       pk,
       dirs.map((d) => [d.n, vscode.FileType.Directory] as [string, vscode.FileType])
     );
-    const items = dirs.map(
-      (d) =>
-        new FolderTreeItem(
-          vscode.Uri.joinPath(parentUri, d.n),
-          d.n,
-          collapsibleIfExpandable(d.sub)
-        )
-    );
+    const childDirUris = dirs.map((d) => vscode.Uri.joinPath(parentUri, d.n));
+    const items = dirs.map((d, i) => {
+      const childUri = childDirUris[i];
+      /**
+       * Prefer the probed chevron cache; fall back to the snapshot `sub` flag only while unknown.
+       * The snapshot can be stale (pre-1.0.11 persisted every folder as expandable), so the probe below
+       * always verifies and corrects.
+       */
+      const known = this._hasChildrenCache.get(cacheKey(childUri));
+      const collapsible =
+        known === undefined
+          ? collapsibleIfExpandable(d.sub)
+          : known
+            ? vscode.TreeItemCollapsibleState.Collapsed
+            : vscode.TreeItemCollapsibleState.None;
+      return new FolderTreeItem(childUri, d.n, collapsible);
+    });
+    this._scheduleChevronProbe(parentUri, childDirUris);
     items.sort((a, b) =>
       String(a.label ?? a.uri.fsPath).localeCompare(String(b.label ?? b.uri.fsPath), undefined, {
         sensitivity: "base",
@@ -461,6 +526,177 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
     return element;
   }
 
+  /** Track the folder-item references VS Code now holds so {@link applyFsChanges} can fire the exact ones. */
+  private _registerItems(items: readonly FolderTreeItem[]): void {
+    for (const it of items) {
+      if (!it.isFileEntry) {
+        this._itemsByKey.set(cacheKey(it.uri), it);
+      }
+    }
+  }
+
+  /** Optimistic chevron: `None` only when a prior probe proved the directory empty; otherwise `Collapsed`. */
+  private _collapsibleForDir(dirUri: vscode.Uri): vscode.TreeItemCollapsibleState {
+    return this._hasChildrenCache.get(cacheKey(dirUri)) === false
+      ? vscode.TreeItemCollapsibleState.None
+      : vscode.TreeItemCollapsibleState.Collapsed;
+  }
+
+  /** True when `dirUri` would show at least one row (subdir, or any entry when files are shown in the tree). */
+  private async _dirHasVisibleChildren(dirUri: vscode.Uri, showFiles: boolean): Promise<boolean> {
+    try {
+      const entries = await vscode.workspace.fs.readDirectory(dirUri);
+      return showFiles ? entries.length > 0 : entries.some(([, t]) => isFsDirectory(t));
+    } catch {
+      return false;
+    }
+  }
+
+  /** Compute "has visible children" from an already-read listing (no extra IO). */
+  private _entriesHaveVisibleChildren(
+    entries: [string, vscode.FileType][],
+    showFiles: boolean
+  ): boolean {
+    return showFiles ? entries.length > 0 : entries.some(([, t]) => isFsDirectory(t));
+  }
+
+  /** Queue unknown child directories for a debounced background probe to correct their chevrons. */
+  private _scheduleChevronProbe(parentUri: vscode.Uri, childDirUris: readonly vscode.Uri[]): void {
+    const unknown = childDirUris.filter((u) => !this._hasChildrenCache.has(cacheKey(u)));
+    if (unknown.length === 0) {
+      return;
+    }
+    const pk = cacheKey(parentUri);
+    const existing = this._chevronProbePending.get(pk);
+    this._chevronProbePending.set(pk, existing ? [...existing, ...unknown] : unknown);
+    if (this._chevronProbeTimer !== undefined) {
+      clearTimeout(this._chevronProbeTimer);
+    }
+    this._chevronProbeTimer = setTimeout(() => {
+      this._chevronProbeTimer = undefined;
+      void this._flushChevronProbe();
+    }, CHEVRON_PROBE_DEBOUNCE_MS);
+  }
+
+  private async _flushChevronProbe(): Promise<void> {
+    const batch = [...this._chevronProbePending];
+    this._chevronProbePending.clear();
+    const showFiles = this._showFilesInFolderTree();
+    for (const [parentKey, childUris] of batch) {
+      let needsRerender = false;
+      await mapPool(childUris, CHEVRON_PROBE_CONCURRENCY, async (childUri) => {
+        const key = cacheKey(childUri);
+        if (this._hasChildrenCache.has(key)) {
+          return;
+        }
+        const has = await this._dirHasVisibleChildren(childUri, showFiles);
+        this._hasChildrenCache.set(key, has);
+        if (!has) {
+          /** Was rendered optimistically as `Collapsed`; now proven empty → chevron must disappear. */
+          needsRerender = true;
+        }
+      });
+      if (needsRerender) {
+        const parentEl = this._itemsByKey.get(parentKey);
+        if (parentEl) {
+          this._onDidChange.fire(parentEl);
+        }
+        /** Heal the persisted snapshot so corrected chevrons survive reloads without re-probing. */
+        this._persistChevronCorrection(parentKey);
+      }
+    }
+  }
+
+  /** Re-persist a parent's subdir `sub` flags from the probed chevron cache (dirs-only snapshot). */
+  private _persistChevronCorrection(parentKey: string): void {
+    if (this._showFilesInFolderTree()) {
+      return;
+    }
+    const entries = this._dirListCache.get(parentKey);
+    if (!entries) {
+      return;
+    }
+    const parentUri = vscode.Uri.file(parentKey);
+    const rows: PersistedSubdir[] = entries
+      .filter(([, t]) => isFsDirectory(t))
+      .map(([n]) => ({
+        n,
+        sub: this._hasChildrenCache.get(cacheKey(vscode.Uri.joinPath(parentUri, n))) !== false,
+      }));
+    this._pendingNodeUpdates.set(parentKey, rows);
+    this._schedulePersist();
+  }
+
+  /** Drop cached listing + tracked references for `key` and everything beneath it (deleted/renamed subtree). */
+  private _pruneSubtree(key: string): void {
+    const prefix = key + path.sep;
+    for (const k of [...this._dirListCache.keys()]) {
+      if (k === key || k.startsWith(prefix)) {
+        this._dirListCache.delete(k);
+      }
+    }
+    for (const k of [...this._itemsByKey.keys()]) {
+      if (k === key || k.startsWith(prefix)) {
+        this._itemsByKey.delete(k);
+      }
+    }
+    for (const k of [...this._hasChildrenCache.keys()]) {
+      if (k === key || k.startsWith(prefix)) {
+        this._hasChildrenCache.delete(k);
+      }
+    }
+  }
+
+  /**
+   * Native-style incremental refresh after an FS change (mirrors VS Code's `ExplorerService.onDidFilesChange`).
+   * Only parents already resolved/visible in the tree are re-read; each affected parent gets a targeted
+   * `fire(parent)` instead of clearing the whole cache. Changes in collapsed/unknown branches are ignored
+   * (re-read lazily on expand), which avoids the full-tree "big job" for churn outside the visible tree.
+   */
+  async applyFsChanges(changedUris: readonly vscode.Uri[]): Promise<void> {
+    if (changedUris.length === 0) {
+      return;
+    }
+    /** A deleted/renamed directory must not keep serving stale children if it reappears. */
+    for (const u of changedUris) {
+      this._pruneSubtree(cacheKey(u));
+    }
+    const parentKeys = new Set<string>();
+    for (const u of changedUris) {
+      parentKeys.add(path.normalize(path.dirname(u.fsPath)));
+    }
+    const showFilesInFolderTree = this._showFilesInFolderTree();
+    for (const parentKey of parentKeys) {
+      const element = this._itemsByKey.get(parentKey);
+      if (!element) {
+        /** Parent not resolved/visible → native would not refresh; fresh listing is read on next expand. */
+        continue;
+      }
+      let entries: [string, vscode.FileType][];
+      try {
+        entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(parentKey));
+      } catch {
+        entries = [];
+      }
+      const prev = this._dirListCache.get(parentKey);
+      this._dirListCache.set(parentKey, entries);
+      if (this._listingChanged(prev, entries, showFilesInFolderTree)) {
+        this._trustMemento = false;
+        this._onDidChange.fire(element);
+      }
+      /** Keep this folder's own chevron correct: if it just became empty/non-empty, re-render its parent. */
+      const hadChildren = this._hasChildrenCache.get(parentKey);
+      const hasChildren = this._entriesHaveVisibleChildren(entries, showFilesInFolderTree);
+      this._hasChildrenCache.set(parentKey, hasChildren);
+      if (hadChildren !== undefined && hadChildren !== hasChildren) {
+        const grandParent = this._itemsByKey.get(path.normalize(path.dirname(parentKey)));
+        if (grandParent) {
+          this._onDidChange.fire(grandParent);
+        }
+      }
+    }
+  }
+
   async getChildren(element?: FolderTreeItem): Promise<FolderTreeItem[]> {
     const showFilesInFolderTree = this._showFilesInFolderTree();
     const folders = vscode.workspace.workspaceFolders ?? [];
@@ -494,11 +730,12 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
               );
             });
             void this._revalidateRoots(folders);
+            this._registerItems(items);
             return items;
           }
         }
       }
-      return Promise.all(
+      const rootItems = await Promise.all(
         folders.map(async (wf) => {
           const pk = cacheKey(wf.uri);
           const items = await this._buildChildItems(wf.uri);
@@ -518,6 +755,8 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
           );
         })
       );
+      this._registerItems(rootItems);
+      return rootItems;
     }
 
     if (this._useFolderTreeMemento(showFilesInFolderTree)) {
@@ -526,6 +765,7 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
         const fromMem = this._tryChildrenFromMemento(element.uri, snap);
         if (fromMem) {
           void this._revalidateNode(element);
+          this._registerItems(fromMem);
           return fromMem;
         }
       }
@@ -538,6 +778,7 @@ export class FolderTreeDataProvider implements vscode.TreeDataProvider<FolderTre
         items.filter((i) => !i.isFileEntry)
       );
     }
+    this._registerItems(items);
     return items;
   }
 
